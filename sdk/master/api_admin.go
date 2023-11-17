@@ -317,6 +317,7 @@ func (api *AdminAPI) UpdateVolume(
 	}
 	return
 }
+
 func (api *AdminAPI) MigrateVolumeWithAuthNode(volName, zoneNameTo, authKey string) (err error) {
 	var request = newAPIRequest(http.MethodGet, proto.AdminMigrateVol)
 	request.addParam("name", volName)

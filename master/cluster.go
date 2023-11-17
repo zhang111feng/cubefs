@@ -17,7 +17,6 @@ package master
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/google/uuid"
 	"math"
 	"sort"
 	"strconv"
@@ -25,6 +24,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
 
 	masterSDK "github.com/cubefs/cubefs/sdk/master"
 
@@ -1181,6 +1182,7 @@ func (c *Cluster) markDeleteVol(name, authKey string, force bool) (err error) {
 
 	return
 }
+
 func (c *Cluster) migrateVol(volName, zoneNameTo, authKey string) (err error) {
 	var (
 		vol           *Vol
@@ -1210,6 +1212,7 @@ func (c *Cluster) migrateVol(volName, zoneNameTo, authKey string) (err error) {
 	}
 	return
 }
+
 func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone) (err error) {
 	var (
 		datanodeInZoneTo   []*DataNode
@@ -1270,6 +1273,7 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone) (err error) {
 	}()
 	return err
 }
+
 func dpReplicaStatus(replicas []*DataReplica, addr string) (existed bool, status bool) {
 	existed = false
 	status = true
@@ -1285,6 +1289,7 @@ func dpReplicaStatus(replicas []*DataReplica, addr string) (existed bool, status
 	}
 	return existed, status
 }
+
 func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 	var (
 		metanodeInZoneTo   []*MetaNode
@@ -1341,6 +1346,7 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 	}()
 	return err
 }
+
 func mpReplicaStatus(replicas []*MetaReplica, addr string) (existed bool, status bool) {
 	existed = false
 	status = true
