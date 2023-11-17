@@ -1738,6 +1738,35 @@ func (m *Server) markDeleteVol(w http.ResponseWriter, r *http.Request) {
 	sendOkReply(w, r, newSuccessHTTPReply(msg))
 }
 
+func (m *Server) migrateVol(w http.ResponseWriter, r *http.Request) {
+	var (
+		volName    string
+		authKey    string
+		zoneNameTo string
+		err        error
+		msg        string
+	)
+
+	metric := exporter.NewTPCnt(apiToMetricsName(proto.AdminMigrateVol))
+	defer func() {
+		doStatAndMetric(proto.AdminMigrateVol, metric, err, map[string]string{exporter.Vol: volName})
+	}()
+
+	if volName, zoneNameTo, authKey, err = parseRequestToMigrateVol(r); err != nil {
+		sendErrReply(w, r, &proto.HTTPReply{Code: proto.ErrCodeParamError, Msg: err.Error()})
+		return
+	}
+
+	if err = m.cluster.migrateVol(volName, zoneNameTo, authKey); err != nil {
+		sendErrReply(w, r, newErrHTTPReply(err))
+		return
+	}
+
+	msg = fmt.Sprintf("migrate vol[%v] successfully,from[%v] to [%v]", volName, zoneNameTo)
+	log.LogWarn(msg)
+	sendOkReply(w, r, newSuccessHTTPReply(msg))
+}
+
 func (m *Server) checkReplicaNum(r *http.Request, vol *Vol, req *updateVolReq) (err error) {
 	var (
 		replicaNumInt64 int64

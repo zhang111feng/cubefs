@@ -326,6 +326,27 @@ func extractStrWithDefault(r *http.Request, key string, def string) (val string)
 	return val
 }
 
+func parseRequestToMigrateVol(r *http.Request) (volName, zoneNameTo, authKey string, err error) {
+	if err = r.ParseForm(); err != nil {
+		return
+	}
+
+	if zoneNameTo = r.FormValue(zoneNameKey); zoneNameTo == "" {
+		return
+	}
+
+	if volName, err = extractName(r); err != nil {
+		return
+	}
+
+	if authKey, err = extractAuthKey(r); err != nil {
+		return
+	}
+
+	return
+
+}
+
 func extractBoolWithDefault(r *http.Request, key string, def bool) (val bool, err error) {
 	var str string
 	if str = r.FormValue(key); str == "" {

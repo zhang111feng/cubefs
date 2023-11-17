@@ -39,6 +39,7 @@ const (
 	AdminAddDataReplica                       = "/dataReplica/add"
 	AdminDeleteVol                            = "/vol/delete"
 	AdminUpdateVol                            = "/vol/update"
+	AdminMigrateVol                           = "/vol/migrate"
 	AdminVolShrink                            = "/vol/shrink"
 	AdminVolExpand                            = "/vol/expand"
 	AdminCreateVol                            = "/admin/createVol"

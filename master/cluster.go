@@ -1181,6 +1181,181 @@ func (c *Cluster) markDeleteVol(name, authKey string, force bool) (err error) {
 
 	return
 }
+func (c *Cluster) migrateVol(volName, zoneNameTo, authKey string) (err error) {
+	var (
+		vol           *Vol
+		serverAuthKey string
+		zoneTo        *Zone
+	)
+	if vol, err = c.getVol(volName); err != nil {
+		log.LogErrorf("action[MigrateVol] err[%v]", err)
+		return proto.ErrVolNotExists
+	}
+	serverAuthKey = vol.Owner
+	if !matchKey(serverAuthKey, authKey) {
+		return proto.ErrVolAuthKeyNotMatch
+	}
+	vol.zoneName = zoneNameTo
+	if zoneTo, err = c.t.getZone(zoneNameTo); err != nil {
+		log.LogErrorf("action[MigrateVol] err[%v]", err)
+		return err
+	}
+	if err = c.migrateDP(vol, zoneTo); err != nil {
+		log.LogErrorf("action[MigrateVol] err[%v]", err)
+		return err
+	}
+	if err = c.syncUpdateVol(vol); err != nil {
+		vol.Status = normal
+		return proto.ErrPersistenceByRaft
+	}
+	return
+}
+func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone) (err error) {
+	var (
+		datanodeInZoneTo   []*DataNode
+		oldReplicaAddrInDP []string
+	)
+	clonedDps := vol.cloneDataPartitionMap()
+	zoneTo.dataNodes.Range(func(key, value interface{}) bool {
+		datanodeInZoneTo = append(datanodeInZoneTo, value.(*DataNode))
+		return true
+	})
+	// TODO 实现负载均衡选取zoneTo上的三个datanode
+	go func() {
+		dn := 0 //轮询变量
+		for _, dp := range clonedDps {
+			dpReplicas := dp.Replicas
+			for _, replicas := range dpReplicas {
+				oldReplicaAddrInDP = append(oldReplicaAddrInDP, replicas.Addr)
+			}
+			dnLength := len(datanodeInZoneTo)
+			for i := 0; i < 3; i++ {
+				dn = dn % dnLength
+				if err = c.addDataReplica(dp, datanodeInZoneTo[dn].Addr); err != nil {
+					return
+				}
+				replicaStatus := make(chan bool)
+				go func(dp *DataPartition, dn int) {
+					for {
+						existed, rw := dpReplicaStatus(dp.Replicas, datanodeInZoneTo[dn].Addr)
+						if existed && rw {
+							replicaStatus <- true
+							close(replicaStatus)
+							break
+						}
+						time.Sleep(time.Second * time.Duration(c.cfg.IntervalToCheckDataPartition))
+					}
+				}(dp, dn)
+				if status, ok := <-replicaStatus; status && ok {
+					dn = dn + 1
+					continue
+				}
+			}
+			for _, addr := range oldReplicaAddrInDP {
+				for {
+					if dp.getLeaderAddr() != "" {
+						break
+					}
+					time.Sleep(time.Second * time.Duration(c.cfg.IntervalToCheckDataPartition))
+				}
+				if err = c.removeDataReplica(dp, addr, true, false); err != nil {
+					return
+				}
+			}
+		}
+		if err = c.migrateMP(vol, zoneTo); err != nil {
+			log.LogErrorf("action[MigrateVol] err[%v]", err)
+			return
+		}
+	}()
+	return err
+}
+func dpReplicaStatus(replicas []*DataReplica, addr string) (existed bool, status bool) {
+	existed = false
+	status = true
+	for _, replica := range replicas {
+		if replica.Addr == addr {
+			existed = true
+			if replica.Status != proto.ReadWrite {
+				status = false
+			}
+		} else {
+			continue
+		}
+	}
+	return existed, status
+}
+func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
+	var (
+		metanodeInZoneTo   []*MetaNode
+		oldReplicaAddrInMP []string
+	)
+	clonedMps := vol.cloneMetaPartitionMap()
+	zoneTo.metaNodes.Range(func(key, value interface{}) bool {
+		metanodeInZoneTo = append(metanodeInZoneTo, value.(*MetaNode))
+		return true
+	})
+	// TODO 实现负载均衡选取zoneTo上的三个metanode
+	go func() {
+		mn := 0 //轮询变量
+		for _, mp := range clonedMps {
+			mpReplicas := mp.Replicas
+			for _, replicas := range mpReplicas {
+				oldReplicaAddrInMP = append(oldReplicaAddrInMP, replicas.Addr)
+			}
+			mnLength := len(metanodeInZoneTo)
+			for i := 0; i < 3; i++ {
+				mn = mn % mnLength
+				if err = c.addMetaReplica(mp, metanodeInZoneTo[mn].Addr); err != nil {
+					return
+				}
+				replicaStatus := make(chan bool)
+				go func(mp *MetaPartition, mn int) {
+					for {
+						existed, rw := mpReplicaStatus(mp.Replicas, metanodeInZoneTo[mn].Addr)
+						if existed && rw {
+							replicaStatus <- true
+							close(replicaStatus)
+							break
+						}
+						time.Sleep(time.Second * time.Duration(c.cfg.IntervalToCheckDataPartition))
+					}
+				}(mp, mn)
+				if status, ok := <-replicaStatus; status && ok {
+					mn = mn + 1
+					continue
+				}
+			}
+			for _, addr := range oldReplicaAddrInMP {
+				for {
+					if mp.isLeaderExist() {
+						break
+					}
+					time.Sleep(time.Second * time.Duration(c.cfg.IntervalToCheckDataPartition))
+				}
+				if err = c.deleteMetaReplica(mp, addr, true, false); err != nil {
+					return
+				}
+			}
+		}
+	}()
+	return err
+}
+func mpReplicaStatus(replicas []*MetaReplica, addr string) (existed bool, status bool) {
+	existed = false
+	status = true
+	for _, replica := range replicas {
+		if replica.Addr == addr {
+			existed = true
+			if replica.Status != proto.ReadWrite {
+				status = false
+			}
+		} else {
+			continue
+		}
+	}
+	return existed, status
+}
 
 func (c *Cluster) batchCreatePreLoadDataPartition(vol *Vol, preload *DataPartitionPreLoad) (err error, dps []*DataPartition) {
 	if proto.IsHot(vol.VolType) {

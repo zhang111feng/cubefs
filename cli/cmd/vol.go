@@ -49,6 +49,7 @@ func newVolCmd(client *master.MasterClient) *cobra.Command {
 		newVolDeleteCmd(client),
 		newVolTransferCmd(client),
 		newVolAddDPCmd(client),
+		newVolMigrateCmd(client),
 	)
 	return cmd
 }
@@ -926,5 +927,73 @@ func newVolSetCapacityCmd(use, short string, r clientHandler) *cobra.Command {
 			return validVols(volume.client, toComplete), cobra.ShellCompDirectiveNoFileComp
 		},
 	}
+	return cmd
+}
+
+const (
+	cmdVolMigrateUse   = "migrate [VOLUME NAME] [ZONENAME]"
+	cmdVolMigrateShort = "Migrate volume to zone"
+)
+
+func newVolMigrateCmd(client *master.MasterClient) *cobra.Command {
+	var (
+		optYes bool
+		zoneTo *proto.ZoneView
+	)
+	var cmd = &cobra.Command{
+		Use:   cmdVolMigrateUse,
+		Short: cmdVolMigrateShort,
+		Args:  cobra.MinimumNArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			var err error
+			var volumeName = args[0]
+			var zoneNameTo = args[1]
+			defer func() {
+				if err != nil {
+					errout("Error: %v\n", err)
+				}
+			}()
+			// ask user for confirm
+			if !optYes {
+				stdout("Migrate volume[%v] to zone[%v] (yes/no)[no]:", volumeName, zoneNameTo)
+				var userConfirm string
+				_, _ = fmt.Scanln(&userConfirm)
+				if userConfirm != "yes" {
+					err = fmt.Errorf("Abort by user.\n")
+					return
+				}
+			}
+			var topo *proto.TopologyView
+			if topo, err = client.AdminAPI().Topo(); err != nil {
+				return
+			}
+			for _, zone := range topo.Zones {
+				if zoneNameTo == zone.Name {
+					zoneTo = zone
+				}
+			}
+			if zoneTo == nil {
+				err = fmt.Errorf("Migrate volume failed:\nZone [%v] not exists in cluster\n ", zoneNameTo)
+				return
+			}
+			var svv *proto.SimpleVolView
+			if svv, err = client.AdminAPI().GetVolumeSimpleInfo(volumeName); err != nil {
+				err = fmt.Errorf("Migrate volume failed:\n%v\n", err)
+				return
+			}
+			if err = client.AdminAPI().MigrateVolumeWithAuthNode(volumeName, zoneNameTo, util.CalcAuthKey(svv.Owner)); err != nil {
+				err = fmt.Errorf("Migrate volume failed:\n%v\n", err)
+				return
+			}
+			stdout("Volume has been migrated successfully.\n")
+		},
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			if len(args) != 0 {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			return validVols(client, toComplete), cobra.ShellCompDirectiveNoFileComp
+		},
+	}
+	cmd.Flags().BoolVarP(&optYes, "yes", "y", false, "Answer yes for all questions")
 	return cmd
 }
