@@ -193,6 +193,12 @@ const (
 )
 
 const (
+	notMigrated = 0
+	isMigrating = 1
+	interrupted = 2
+)
+
+const (
 	defaultEbsBlkSize = 8 * 1024 * 1024
 
 	defaultCacheThreshold   = 10 * 1024 * 1024

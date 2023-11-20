@@ -275,6 +275,40 @@ func parseRequestToDeleteVol(r *http.Request) (name, authKey string, force bool,
 
 }
 
+func parseRequestToMigrateVol(r *http.Request) (volName, zoneNameTo, authKey string, err error) {
+	if err = r.ParseForm(); err != nil {
+		return
+	}
+
+	if zoneNameTo = r.FormValue(zoneNameKey); zoneNameTo == "" {
+		return
+	}
+
+	if volName, err = extractName(r); err != nil {
+		return
+	}
+
+	if authKey, err = extractAuthKey(r); err != nil {
+		return
+	}
+
+	return
+
+}
+
+func parseRequestToMigrationInfo(r *http.Request) (volName string, err error) {
+	if err = r.ParseForm(); err != nil {
+		return
+	}
+
+	if volName, err = extractName(r); err != nil {
+		return
+	}
+
+	return
+
+}
+
 func extractUintWithDefault(r *http.Request, key string, def int) (val int, err error) {
 
 	var str string
@@ -324,27 +358,6 @@ func extractStrWithDefault(r *http.Request, key string, def string) (val string)
 	}
 
 	return val
-}
-
-func parseRequestToMigrateVol(r *http.Request) (volName, zoneNameTo, authKey string, err error) {
-	if err = r.ParseForm(); err != nil {
-		return
-	}
-
-	if zoneNameTo = r.FormValue(zoneNameKey); zoneNameTo == "" {
-		return
-	}
-
-	if volName, err = extractName(r); err != nil {
-		return
-	}
-
-	if authKey, err = extractAuthKey(r); err != nil {
-		return
-	}
-
-	return
-
 }
 
 func extractBoolWithDefault(r *http.Request, key string, def bool) (val bool, err error) {

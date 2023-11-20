@@ -50,6 +50,7 @@ func newVolCmd(client *master.MasterClient) *cobra.Command {
 		newVolTransferCmd(client),
 		newVolAddDPCmd(client),
 		newVolMigrateCmd(client),
+		newVolMigrationInfoCmd(client),
 	)
 	return cmd
 }
@@ -985,7 +986,7 @@ func newVolMigrateCmd(client *master.MasterClient) *cobra.Command {
 				err = fmt.Errorf("Migrate volume failed:\n%v\n", err)
 				return
 			}
-			stdout("Volume has been migrated successfully.\n")
+			stdout("Volume is migrating, please wait for a moment.\n")
 		},
 		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 			if len(args) != 0 {
@@ -995,5 +996,46 @@ func newVolMigrateCmd(client *master.MasterClient) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVarP(&optYes, "yes", "y", false, "Answer yes for all questions")
+	return cmd
+}
+
+const (
+	cmdVolMigrationInfoUse   = "migrate-Info [VOLUME NAME]"
+	cmdVolMigrationInfoShort = "Query migration information of volume"
+)
+
+func newVolMigrationInfoCmd(client *master.MasterClient) *cobra.Command {
+	var (
+		msg         string
+		clientIDKey string
+	)
+	var cmd = &cobra.Command{
+		Use:   cmdVolMigrationInfoUse,
+		Short: cmdVolMigrationInfoShort,
+		Args:  cobra.MinimumNArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			var err error
+			var volumeName = args[0]
+			defer func() {
+				if err != nil {
+					errout("Error: %v\n", err)
+				}
+			}()
+
+			if msg, err = client.AdminAPI().VolMigrationInfo(volumeName, clientIDKey); err != nil {
+				err = fmt.Errorf("Query failed:\n%v\n", err)
+				return
+			}
+
+			stdout("[v%]\n", msg)
+		},
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			if len(args) != 0 {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			return validVols(client, toComplete), cobra.ShellCompDirectiveNoFileComp
+		},
+	}
+
 	return cmd
 }

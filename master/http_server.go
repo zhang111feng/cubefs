@@ -257,6 +257,9 @@ func (m *Server) registerAPIRoutes(router *mux.Router) {
 		Path(proto.AdminMigrateVol).
 		HandlerFunc(m.migrateVol)
 	router.NewRoute().Methods(http.MethodGet, http.MethodPost).
+		Path(proto.AdminMigrationInfo).
+		HandlerFunc(m.migrationInfo)
+	router.NewRoute().Methods(http.MethodGet, http.MethodPost).
 		Path(proto.AdminVolShrink).
 		HandlerFunc(m.volShrink)
 	router.NewRoute().Methods(http.MethodGet, http.MethodPost).

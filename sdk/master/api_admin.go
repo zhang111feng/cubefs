@@ -329,6 +329,16 @@ func (api *AdminAPI) MigrateVolumeWithAuthNode(volName, zoneNameTo, authKey stri
 	return
 }
 
+func (api *AdminAPI) VolMigrationInfo(volName, clientIDKey string) (msg string, err error) {
+	var request = newAPIRequest(http.MethodGet, proto.AdminMigrationInfo)
+	request.addParam("name", volName)
+	request.addParam("clientIDKey", clientIDKey)
+	if _, err = api.mc.serveRequest(request); err != nil {
+		return
+	}
+	return
+}
+
 func (api *AdminAPI) PutDataPartitions(volName string, dpsView []byte) (err error) {
 	var request = newAPIRequest(http.MethodPost, proto.AdminPutDataPartitions)
 	request.addParam("name", volName)

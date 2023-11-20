@@ -225,6 +225,7 @@ type volValue struct {
 	FollowerRead          bool
 	Authenticate          bool
 	DpReadOnlyWhenVolFull bool
+	migrationInfo         *MigrationInfo
 
 	CrossZone       bool
 	DomainOn        bool
@@ -301,6 +302,7 @@ func newVolValue(vol *Vol) (vv *volValue) {
 		TxConflictRetryNum:      vol.txConflictRetryNum,
 		TxConflictRetryInterval: vol.txConflictRetryInterval,
 		TxOpLimit:               vol.txOpLimit,
+		migrationInfo:           vol.migrationInfo,
 
 		VolType:             vol.VolType,
 		EbsBlkSize:          vol.EbsBlkSize,
@@ -900,7 +902,7 @@ func (c *Cluster) loadZoneValue() (err error) {
 	return
 }
 
-//persist cluster value if not persisted; set create time for cluster being created.
+// persist cluster value if not persisted; set create time for cluster being created.
 func (c *Cluster) checkPersistClusterValue() {
 	result, err := c.fsm.store.SeekForPrefix([]byte(clusterPrefix))
 	if err != nil {

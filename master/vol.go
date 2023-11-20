@@ -63,6 +63,7 @@ type Vol struct {
 	dataPartitionSize uint64 // byte
 	Capacity          uint64 // GB
 	VolType           int
+	migrationInfo     *MigrationInfo
 
 	EbsBlkSize       int
 	CacheCapacity    uint64
@@ -110,6 +111,14 @@ type Vol struct {
 	enableQuota             bool
 }
 
+type MigrationInfo struct {
+	status            uint8
+	finishedDp        []uint64
+	finishedDpReplica map[uint64][]string
+	finishedMp        []uint64
+	finishedMpReplica map[uint64][]string
+}
+
 func newVol(vv volValue) (vol *Vol) {
 
 	vol = &Vol{ID: vv.ID, Name: vv.Name, MetaPartitions: make(map[uint64]*MetaPartition, 0)}
@@ -143,6 +152,7 @@ func newVol(vv volValue) (vol *Vol) {
 	vol.txConflictRetryNum = vv.TxConflictRetryNum
 	vol.txConflictRetryInterval = vv.TxConflictRetryInterval
 	vol.txOpLimit = vv.TxOpLimit
+	vol.migrationInfo = vv.migrationInfo
 
 	vol.VolType = vv.VolType
 	vol.EbsBlkSize = vv.EbsBlkSize

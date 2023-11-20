@@ -1193,23 +1193,29 @@ func (c *Cluster) migrateVol(volName, zoneNameTo, authKey string) (err error) {
 		log.LogErrorf("action[MigrateVol] err[%v]", err)
 		return proto.ErrVolNotExists
 	}
+
 	serverAuthKey = vol.Owner
+
 	if !matchKey(serverAuthKey, authKey) {
 		return proto.ErrVolAuthKeyNotMatch
 	}
+
 	vol.zoneName = zoneNameTo
 	if zoneTo, err = c.t.getZone(zoneNameTo); err != nil {
 		log.LogErrorf("action[MigrateVol] err[%v]", err)
 		return err
 	}
-	if err = c.migrateDP(vol, zoneTo); err != nil {
-		log.LogErrorf("action[MigrateVol] err[%v]", err)
-		return err
-	}
+
 	if err = c.syncUpdateVol(vol); err != nil {
 		vol.Status = normal
 		return proto.ErrPersistenceByRaft
 	}
+
+	if err = c.migrateDP(vol, zoneTo); err != nil {
+		log.LogErrorf("action[MigrateVol] err[%v]", err)
+		return err
+	}
+
 	return
 }
 
@@ -1223,7 +1229,8 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone) (err error) {
 		datanodeInZoneTo = append(datanodeInZoneTo, value.(*DataNode))
 		return true
 	})
-	// TODO 实现负载均衡选取zoneTo上的三个datanode
+
+	// TODO 实现负载均衡选取zoneTo上的三个datanode，当前为轮询查找新zone里面的三个datanode作为迁移的新replica
 	go func() {
 		dn := 0 //轮询变量
 		for _, dp := range clonedDps {
@@ -1300,7 +1307,8 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 		metanodeInZoneTo = append(metanodeInZoneTo, value.(*MetaNode))
 		return true
 	})
-	// TODO 实现负载均衡选取zoneTo上的三个metanode
+
+	// TODO 实现负载均衡选取zoneTo上的三个metanode，当前为轮询查找新zone里面的三个metanode作为迁移的新replica
 	go func() {
 		mn := 0 //轮询变量
 		for _, mp := range clonedMps {
@@ -1361,6 +1369,28 @@ func mpReplicaStatus(replicas []*MetaReplica, addr string) (existed bool, status
 		}
 	}
 	return existed, status
+}
+
+func (c *Cluster) migrationInfo(volName string) (err error) {
+	var (
+		vol *Vol
+	)
+
+	if vol, err = c.getVol(volName); err != nil {
+		log.LogErrorf("action[MigrateVol] err[%v]", err)
+		return proto.ErrVolNotExists
+	}
+
+	if vol.migrationInfo.status == notMigrated {
+		return fmt.Errorf("[%v] is not being migrated", volName)
+	}
+
+	if err = c.syncUpdateVol(vol); err != nil {
+		vol.Status = normal
+		return proto.ErrPersistenceByRaft
+	}
+
+	return
 }
 
 func (c *Cluster) batchCreatePreLoadDataPartition(vol *Vol, preload *DataPartitionPreLoad) (err error, dps []*DataPartition) {
@@ -3182,6 +3212,9 @@ func (c *Cluster) doCreateVol(req *createVolReq) (vol *Vol, err error) {
 	if err != nil {
 		goto errHandler
 	}
+
+	vv.migrationInfo = new(MigrationInfo)
+	vv.migrationInfo.status = notMigrated
 
 	vol = newVol(vv)
 	log.LogInfof("[doCreateVol] vol, %v", vol)
