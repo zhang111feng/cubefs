@@ -150,7 +150,7 @@ func (mp *MetaPartition) updateInodeIDRangeForAllReplicas() {
 	}
 }
 
-//canSplit caller must be add lock
+// canSplit caller must be add lock
 func (mp *MetaPartition) canSplit(end uint64, metaPartitionInodeIdStep uint64) (err error) {
 	if end < mp.Start {
 		err = fmt.Errorf("end[%v] less than mp.start[%v]", end, mp.Start)

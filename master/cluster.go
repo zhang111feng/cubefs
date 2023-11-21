@@ -1189,42 +1189,60 @@ func (c *Cluster) migrateVol(volName, zoneNameTo, authKey string) (err error) {
 		serverAuthKey string
 		zoneTo        *Zone
 	)
+
 	if vol, err = c.getVol(volName); err != nil {
 		log.LogErrorf("action[MigrateVol] err[%v]", err)
 		return proto.ErrVolNotExists
 	}
 
 	serverAuthKey = vol.Owner
-
 	if !matchKey(serverAuthKey, authKey) {
 		return proto.ErrVolAuthKeyNotMatch
 	}
 
-	vol.zoneName = zoneNameTo
+	if vol.migrationInfo.status == isMigrating {
+		err = errors.New("The volume is being migrated and cannot be migrated repeatedly")
+		return err
+	}
+
+	if vol.migrationInfo.status == interrupted {
+		err = errors.New("The last volume migration is incomplete. Please complete it first")
+		return err
+	}
+
 	if zoneTo, err = c.t.getZone(zoneNameTo); err != nil {
 		log.LogErrorf("action[MigrateVol] err[%v]", err)
 		return err
 	}
 
+	vol.migrationInfo.zoneTo = zoneTo
+	vol.zoneName = zoneNameTo
 	if err = c.syncUpdateVol(vol); err != nil {
 		vol.Status = normal
 		return proto.ErrPersistenceByRaft
 	}
 
-	if err = c.migrateDP(vol, zoneTo); err != nil {
+	clonedDps := vol.cloneDataPartitionMap()
+	if err = c.migrateDP(vol, zoneTo, clonedDps); err != nil {
 		log.LogErrorf("action[MigrateVol] err[%v]", err)
 		return err
+	}
+
+	vol.migrationInfo.status = isMigrating
+	if err = c.syncUpdateVol(vol); err != nil {
+		vol.Status = normal
+		return proto.ErrPersistenceByRaft
 	}
 
 	return
 }
 
-func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone) (err error) {
+func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPartition) (err error) {
 	var (
 		datanodeInZoneTo   []*DataNode
 		oldReplicaAddrInDP []string
 	)
-	clonedDps := vol.cloneDataPartitionMap()
+
 	zoneTo.dataNodes.Range(func(key, value interface{}) bool {
 		datanodeInZoneTo = append(datanodeInZoneTo, value.(*DataNode))
 		return true
@@ -1234,6 +1252,9 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone) (err error) {
 	go func() {
 		dn := 0 //轮询变量
 		for _, dp := range clonedDps {
+			if vol.migrationInfo.status == interrupted {
+				return
+			}
 			dpReplicas := dp.Replicas
 			for _, replicas := range dpReplicas {
 				oldReplicaAddrInDP = append(oldReplicaAddrInDP, replicas.Addr)
@@ -1272,7 +1293,14 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone) (err error) {
 					return
 				}
 			}
+
+			vol.migrationInfo.finishedDp[dp.PartitionID] = true
 		}
+
+		if vol.migrationInfo.status == interrupted {
+			return
+		}
+
 		if err = c.migrateMP(vol, zoneTo); err != nil {
 			log.LogErrorf("action[MigrateVol] err[%v]", err)
 			return
@@ -1302,7 +1330,8 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 		metanodeInZoneTo   []*MetaNode
 		oldReplicaAddrInMP []string
 	)
-	clonedMps := vol.cloneMetaPartitionMap()
+
+	clonedMps := vol.cloneMetaPartitionMapExceptFinished(vol.migrationInfo.finishedMp)
 	zoneTo.metaNodes.Range(func(key, value interface{}) bool {
 		metanodeInZoneTo = append(metanodeInZoneTo, value.(*MetaNode))
 		return true
@@ -1312,6 +1341,9 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 	go func() {
 		mn := 0 //轮询变量
 		for _, mp := range clonedMps {
+			if vol.migrationInfo.status == interrupted {
+				return
+			}
 			mpReplicas := mp.Replicas
 			for _, replicas := range mpReplicas {
 				oldReplicaAddrInMP = append(oldReplicaAddrInMP, replicas.Addr)
@@ -1350,6 +1382,13 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 					return
 				}
 			}
+
+			vol.migrationInfo.finishedMp[mp.PartitionID] = true
+		}
+		vol.migrationInfo.status = notMigrated
+		if err = c.syncUpdateVol(vol); err != nil {
+			vol.Status = normal
+			return
 		}
 	}()
 	return err
@@ -1371,23 +1410,87 @@ func mpReplicaStatus(replicas []*MetaReplica, addr string) (existed bool, status
 	return existed, status
 }
 
-func (c *Cluster) migrationInfo(volName string) (err error) {
+func (c *Cluster) migrationInfo(volName string) (msg string, err error) {
 	var (
 		vol *Vol
 	)
 
 	if vol, err = c.getVol(volName); err != nil {
-		log.LogErrorf("action[MigrateVol] err[%v]", err)
-		return proto.ErrVolNotExists
+		log.LogErrorf("action[MigrateInfo] err[%v]", err)
+		return "", proto.ErrVolNotExists
 	}
 
 	if vol.migrationInfo.status == notMigrated {
-		return fmt.Errorf("[%v] is not being migrated", volName)
+		return "", fmt.Errorf("[%v] is not being migrated", volName)
 	}
 
+	finishedDp := len(vol.migrationInfo.finishedDp)
+	finishedMp := len(vol.migrationInfo.finishedMp)
+	totalDP := len(vol.dataPartitions.partitions)
+	totalMp := len(vol.MetaPartitions)
+
+	if vol.migrationInfo.status == isMigrating {
+		msg = fmt.Sprintf("[%v] is being migrated to [%v], DP: %v of %v is finished, MP: %v of %v is finished", volName, vol.migrationInfo.zoneTo.name, finishedDp, totalDP, finishedMp, totalMp)
+	}
+
+	if vol.migrationInfo.status == interrupted {
+		msg = fmt.Sprintf("The process of migrating [%v] to [%v] is interrupted, DP: %v of %v is finished, MP: %v of %v is finished", volName, vol.migrationInfo.zoneTo.name, finishedDp, totalDP, finishedMp, totalMp)
+	}
+
+	return msg, nil
+}
+
+func (c *Cluster) migrationStop(volName string) (err error) {
+	var (
+		vol *Vol
+	)
+
+	if vol, err = c.getVol(volName); err != nil {
+		log.LogErrorf("action[MigrateInfo] err[%v]", err)
+		return proto.ErrVolNotExists
+	}
+
+	if vol.migrationInfo.status != isMigrating {
+		return fmt.Errorf("Volume[%v] is not being migrated", volName)
+	}
+
+	vol.migrationInfo.status = interrupted
 	if err = c.syncUpdateVol(vol); err != nil {
 		vol.Status = normal
 		return proto.ErrPersistenceByRaft
+	}
+
+	return
+}
+
+func (c *Cluster) migrationContinue(volName string) (err error) {
+	var (
+		vol *Vol
+	)
+
+	if vol, err = c.getVol(volName); err != nil {
+		log.LogErrorf("action[MigrateInfo] err[%v]", err)
+		return proto.ErrVolNotExists
+	}
+
+	if vol.migrationInfo.status == isMigrating {
+		return fmt.Errorf("Volume[%v] is being migrated now and there is no need to continue", volName)
+	}
+
+	if vol.migrationInfo.status == notMigrated {
+		return fmt.Errorf("Volume[%v] has no migration process that can be continued", volName)
+	}
+
+	vol.migrationInfo.status = isMigrating
+	if err = c.syncUpdateVol(vol); err != nil {
+		vol.Status = normal
+		return proto.ErrPersistenceByRaft
+	}
+
+	clonedDps := vol.cloneDataPartitionMapExceptFinished(vol.migrationInfo.finishedDp)
+	if err = c.migrateDP(vol, vol.migrationInfo.zoneTo, clonedDps); err != nil {
+		log.LogErrorf("action[MigrateVol] err[%v]", err)
+		return err
 	}
 
 	return
@@ -3213,8 +3316,9 @@ func (c *Cluster) doCreateVol(req *createVolReq) (vol *Vol, err error) {
 		goto errHandler
 	}
 
-	vv.migrationInfo = new(MigrationInfo)
 	vv.migrationInfo.status = notMigrated
+	vv.migrationInfo.finishedDp = make(map[uint64]bool)
+	vv.migrationInfo.finishedMp = make(map[uint64]bool)
 
 	vol = newVol(vv)
 	log.LogInfof("[doCreateVol] vol, %v", vol)

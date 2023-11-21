@@ -225,7 +225,7 @@ type volValue struct {
 	FollowerRead          bool
 	Authenticate          bool
 	DpReadOnlyWhenVolFull bool
-	migrationInfo         *MigrationInfo
+	migrationInfo         MigrationInfo
 
 	CrossZone       bool
 	DomainOn        bool

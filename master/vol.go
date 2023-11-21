@@ -63,7 +63,7 @@ type Vol struct {
 	dataPartitionSize uint64 // byte
 	Capacity          uint64 // GB
 	VolType           int
-	migrationInfo     *MigrationInfo
+	migrationInfo     MigrationInfo
 
 	EbsBlkSize       int
 	CacheCapacity    uint64
@@ -112,11 +112,12 @@ type Vol struct {
 }
 
 type MigrationInfo struct {
-	status            uint8
-	finishedDp        []uint64
-	finishedDpReplica map[uint64][]string
-	finishedMp        []uint64
-	finishedMpReplica map[uint64][]string
+	status     uint8
+	finishedDp map[uint64]bool
+	//	finishedDpReplica map[uint64][]string
+	finishedMp map[uint64]bool
+	// finishedMpReplica map[uint64][]string
+	zoneTo *Zone
 }
 
 func newVol(vv volValue) (vol *Vol) {
@@ -581,12 +582,36 @@ func (vol *Vol) cloneMetaPartitionMap() (mps map[uint64]*MetaPartition) {
 	return
 }
 
+func (vol *Vol) cloneMetaPartitionMapExceptFinished(finishedMp map[uint64]bool) (mps map[uint64]*MetaPartition) {
+	mps = make(map[uint64]*MetaPartition, 0)
+	vol.mpsLock.RLock()
+	defer vol.mpsLock.RUnlock()
+	for _, mp := range vol.MetaPartitions {
+		if _, ok := finishedMp[mp.PartitionID]; !ok {
+			mps[mp.PartitionID] = mp
+		}
+	}
+	return
+}
+
 func (vol *Vol) cloneDataPartitionMap() (dps map[uint64]*DataPartition) {
 	vol.dataPartitions.RLock()
 	defer vol.dataPartitions.RUnlock()
 	dps = make(map[uint64]*DataPartition, 0)
 	for _, dp := range vol.dataPartitions.partitionMap {
 		dps[dp.PartitionID] = dp
+	}
+	return
+}
+
+func (vol *Vol) cloneDataPartitionMapExceptFinished(finishedDp map[uint64]bool) (dps map[uint64]*DataPartition) {
+	vol.dataPartitions.RLock()
+	defer vol.dataPartitions.RUnlock()
+	dps = make(map[uint64]*DataPartition, 0)
+	for _, dp := range vol.dataPartitions.partitionMap {
+		if _, ok := finishedDp[dp.PartitionID]; !ok {
+			dps[dp.PartitionID] = dp
+		}
 	}
 	return
 }

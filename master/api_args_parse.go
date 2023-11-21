@@ -296,7 +296,8 @@ func parseRequestToMigrateVol(r *http.Request) (volName, zoneNameTo, authKey str
 
 }
 
-func parseRequestToMigrationInfo(r *http.Request) (volName string, err error) {
+func parseRequestToVolumeName(r *http.Request) (volName string, err error) {
+
 	if err = r.ParseForm(); err != nil {
 		return
 	}

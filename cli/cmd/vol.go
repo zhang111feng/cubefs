@@ -51,6 +51,8 @@ func newVolCmd(client *master.MasterClient) *cobra.Command {
 		newVolAddDPCmd(client),
 		newVolMigrateCmd(client),
 		newVolMigrationInfoCmd(client),
+		newVolMigrationStopCmd(client),
+		newVolMigrationContinueCmd(client),
 	)
 	return cmd
 }
@@ -1000,14 +1002,13 @@ func newVolMigrateCmd(client *master.MasterClient) *cobra.Command {
 }
 
 const (
-	cmdVolMigrationInfoUse   = "migrate-Info [VOLUME NAME]"
+	cmdVolMigrationInfoUse   = "migration-info [VOLUME NAME]"
 	cmdVolMigrationInfoShort = "Query migration information of volume"
 )
 
 func newVolMigrationInfoCmd(client *master.MasterClient) *cobra.Command {
 	var (
-		msg         string
-		clientIDKey string
+		msg string
 	)
 	var cmd = &cobra.Command{
 		Use:   cmdVolMigrationInfoUse,
@@ -1022,8 +1023,88 @@ func newVolMigrationInfoCmd(client *master.MasterClient) *cobra.Command {
 				}
 			}()
 
-			if msg, err = client.AdminAPI().VolMigrationInfo(volumeName, clientIDKey); err != nil {
+			if msg, err = client.AdminAPI().VolMigrationInfo(volumeName); err != nil {
 				err = fmt.Errorf("Query failed:\n%v\n", err)
+				return
+			}
+
+			stdout("[v%]\n", msg)
+		},
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			if len(args) != 0 {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			return validVols(client, toComplete), cobra.ShellCompDirectiveNoFileComp
+		},
+	}
+
+	return cmd
+}
+
+const (
+	cmdVolMigrationStopUse   = "migration-stop [VOLUME NAME]"
+	cmdVolMigrationStopShort = "Stop migration of volume"
+)
+
+func newVolMigrationStopCmd(client *master.MasterClient) *cobra.Command {
+	var (
+		msg string
+	)
+	var cmd = &cobra.Command{
+		Use:   cmdVolMigrationStopUse,
+		Short: cmdVolMigrationStopShort,
+		Args:  cobra.MinimumNArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			var err error
+			var volumeName = args[0]
+			defer func() {
+				if err != nil {
+					errout("Error: %v\n", err)
+				}
+			}()
+
+			if err = client.AdminAPI().VolMigrationStop(volumeName); err != nil {
+				err = fmt.Errorf("Stop failed:\n%v\n", err)
+				return
+			}
+
+			stdout("[v%]\n", msg)
+		},
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			if len(args) != 0 {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			return validVols(client, toComplete), cobra.ShellCompDirectiveNoFileComp
+		},
+	}
+
+	return cmd
+}
+
+const (
+	cmdVolMigrationContinueUse   = "migration-continue [VOLUME NAME]"
+	cmdVolMigrationContinueShort = "Continue migration of an interrupted volume"
+)
+
+func newVolMigrationContinueCmd(client *master.MasterClient) *cobra.Command {
+	var (
+		msg string
+	)
+	var cmd = &cobra.Command{
+		Use:   cmdVolMigrationContinueUse,
+		Short: cmdVolMigrationContinueShort,
+		Args:  cobra.MinimumNArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			var err error
+			var volumeName = args[0]
+			defer func() {
+				if err != nil {
+					errout("Error: %v\n", err)
+				}
+			}()
+
+			if err = client.AdminAPI().VolMigrationContinue(volumeName); err != nil {
+				err = fmt.Errorf("Continue failed:\n%v\n", err)
 				return
 			}
 

@@ -262,6 +262,44 @@ func (api *AdminAPI) DeleteVolume(volName, authKey string) (err error) {
 	return
 }
 
+func (api *AdminAPI) MigrateVolumeWithAuthNode(volName, zoneNameTo, authKey string) (err error) {
+	var request = newAPIRequest(http.MethodGet, proto.AdminMigrateVol)
+	request.addParam("name", volName)
+	request.addParam("zoneName", zoneNameTo)
+	request.addParam("authKey", authKey)
+	if _, err = api.mc.serveRequest(request); err != nil {
+		return
+	}
+	return
+}
+
+func (api *AdminAPI) VolMigrationInfo(volName string) (msg string, err error) {
+	var request = newAPIRequest(http.MethodGet, proto.AdminMigrationInfo)
+	request.addParam("name", volName)
+	if _, err = api.mc.serveRequest(request); err != nil {
+		return
+	}
+	return
+}
+
+func (api *AdminAPI) VolMigrationStop(volName string) (err error) {
+	var request = newAPIRequest(http.MethodGet, proto.AdminMigrationStop)
+	request.addParam("name", volName)
+	if _, err = api.mc.serveRequest(request); err != nil {
+		return
+	}
+	return
+}
+
+func (api *AdminAPI) VolMigrationContinue(volName string) (err error) {
+	var request = newAPIRequest(http.MethodGet, proto.AdminMigrationContinue)
+	request.addParam("name", volName)
+	if _, err = api.mc.serveRequest(request); err != nil {
+		return
+	}
+	return
+}
+
 func (api *AdminAPI) UpdateVolume(
 	vv *proto.SimpleVolView,
 	txTimeout int64,
@@ -312,27 +350,6 @@ func (api *AdminAPI) UpdateVolume(
 		request.addParam("txConflictRetryInterval", strconv.FormatInt(txConflictRetryInterval, 10))
 	}
 
-	if _, err = api.mc.serveRequest(request); err != nil {
-		return
-	}
-	return
-}
-
-func (api *AdminAPI) MigrateVolumeWithAuthNode(volName, zoneNameTo, authKey string) (err error) {
-	var request = newAPIRequest(http.MethodGet, proto.AdminMigrateVol)
-	request.addParam("name", volName)
-	request.addParam("zoneName", zoneNameTo)
-	request.addParam("authKey", authKey)
-	if _, err = api.mc.serveRequest(request); err != nil {
-		return
-	}
-	return
-}
-
-func (api *AdminAPI) VolMigrationInfo(volName, clientIDKey string) (msg string, err error) {
-	var request = newAPIRequest(http.MethodGet, proto.AdminMigrationInfo)
-	request.addParam("name", volName)
-	request.addParam("clientIDKey", clientIDKey)
 	if _, err = api.mc.serveRequest(request); err != nil {
 		return
 	}

@@ -1774,22 +1774,73 @@ func (m *Server) migrationInfo(w http.ResponseWriter, r *http.Request) {
 		msg     string
 	)
 
-	metric := exporter.NewTPCnt(apiToMetricsName(proto.AdminMigrateVol))
+	metric := exporter.NewTPCnt(apiToMetricsName(proto.AdminMigrationInfo))
 	defer func() {
-		doStatAndMetric(proto.AdminMigrateVol, metric, err, map[string]string{exporter.Vol: volName})
+		doStatAndMetric(proto.AdminMigrationInfo, metric, err, map[string]string{exporter.Vol: volName})
 	}()
 
-	if volName, err = parseRequestToMigrationInfo(r); err != nil {
+	if volName, err = parseRequestToVolumeName(r); err != nil {
 		sendErrReply(w, r, &proto.HTTPReply{Code: proto.ErrCodeParamError, Msg: err.Error()})
 		return
 	}
 
-	if err = m.cluster.migrationInfo(volName); err != nil {
+	if msg, err = m.cluster.migrationInfo(volName); err != nil {
 		sendErrReply(w, r, newErrHTTPReply(err))
 		return
 	}
 
-	msg = fmt.Sprintf("123")
+	log.LogWarn(msg)
+	sendOkReply(w, r, newSuccessHTTPReply(msg))
+}
+
+func (m *Server) migrationStop(w http.ResponseWriter, r *http.Request) {
+	var (
+		volName string
+		err     error
+		msg     string
+	)
+
+	metric := exporter.NewTPCnt(apiToMetricsName(proto.AdminMigrationStop))
+	defer func() {
+		doStatAndMetric(proto.AdminMigrationStop, metric, err, map[string]string{exporter.Vol: volName})
+	}()
+
+	if volName, err = parseRequestToVolumeName(r); err != nil {
+		sendErrReply(w, r, &proto.HTTPReply{Code: proto.ErrCodeParamError, Msg: err.Error()})
+		return
+	}
+
+	if err = m.cluster.migrationStop(volName); err != nil {
+		sendErrReply(w, r, newErrHTTPReply(err))
+		return
+	}
+
+	log.LogWarn(msg)
+	sendOkReply(w, r, newSuccessHTTPReply(msg))
+}
+
+func (m *Server) migrationContinue(w http.ResponseWriter, r *http.Request) {
+	var (
+		volName string
+		err     error
+		msg     string
+	)
+
+	metric := exporter.NewTPCnt(apiToMetricsName(proto.AdminMigrationContinue))
+	defer func() {
+		doStatAndMetric(proto.AdminMigrationContinue, metric, err, map[string]string{exporter.Vol: volName})
+	}()
+
+	if volName, err = parseRequestToVolumeName(r); err != nil {
+		sendErrReply(w, r, &proto.HTTPReply{Code: proto.ErrCodeParamError, Msg: err.Error()})
+		return
+	}
+
+	if err = m.cluster.migrationContinue(volName); err != nil {
+		sendErrReply(w, r, newErrHTTPReply(err))
+		return
+	}
+
 	log.LogWarn(msg)
 	sendOkReply(w, r, newSuccessHTTPReply(msg))
 }
