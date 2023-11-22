@@ -273,10 +273,15 @@ func (api *AdminAPI) MigrateVolumeWithAuthNode(volName, zoneNameTo, authKey stri
 	return
 }
 
-func (api *AdminAPI) VolMigrationInfo(volName string) (msg string, err error) {
+func (api *AdminAPI) VolMigrationInfo(volName string) (msg *string, err error) {
 	var request = newAPIRequest(http.MethodGet, proto.AdminMigrationInfo)
 	request.addParam("name", volName)
-	if _, err = api.mc.serveRequest(request); err != nil {
+	var buf []byte
+	if buf, err = api.mc.serveRequest(request); err != nil {
+		return
+	}
+
+	if err = json.Unmarshal(buf, &msg); err != nil {
 		return
 	}
 	return
@@ -294,6 +299,16 @@ func (api *AdminAPI) VolMigrationStop(volName string) (err error) {
 func (api *AdminAPI) VolMigrationContinue(volName string) (err error) {
 	var request = newAPIRequest(http.MethodGet, proto.AdminMigrationContinue)
 	request.addParam("name", volName)
+	if _, err = api.mc.serveRequest(request); err != nil {
+		return
+	}
+	return
+}
+
+func (api *AdminAPI) VolMigrationStatus(volName, status string) (err error) {
+	var request = newAPIRequest(http.MethodGet, proto.AdminMigrationStatus)
+	request.addParam("name", volName)
+	request.addParam("migrationStatus", status)
 	if _, err = api.mc.serveRequest(request); err != nil {
 		return
 	}

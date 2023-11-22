@@ -1762,7 +1762,7 @@ func (m *Server) migrateVol(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	msg = fmt.Sprintf("migrate vol[%v] successfully,from[%v] to [%v]", volName, zoneNameTo)
+	msg = fmt.Sprintf("is migrating vol[%v] to [%v]", volName, zoneNameTo)
 	log.LogWarn(msg)
 	sendOkReply(w, r, newSuccessHTTPReply(msg))
 }
@@ -1789,7 +1789,6 @@ func (m *Server) migrationInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.LogWarn(msg)
 	sendOkReply(w, r, newSuccessHTTPReply(msg))
 }
 
@@ -1815,6 +1814,7 @@ func (m *Server) migrationStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	msg = fmt.Sprintf("The migration of vol[%v] is interrupted", volName)
 	log.LogWarn(msg)
 	sendOkReply(w, r, newSuccessHTTPReply(msg))
 }
@@ -1841,6 +1841,35 @@ func (m *Server) migrationContinue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	msg = fmt.Sprintf("The migration of vol[%v] is continued", volName)
+	log.LogWarn(msg)
+	sendOkReply(w, r, newSuccessHTTPReply(msg))
+}
+
+func (m *Server) migrationStatus(w http.ResponseWriter, r *http.Request) {
+	var (
+		volName string
+		status  uint8
+		err     error
+		msg     string
+	)
+
+	metric := exporter.NewTPCnt(apiToMetricsName(proto.AdminMigrateVol))
+	defer func() {
+		doStatAndMetric(proto.AdminMigrateVol, metric, err, map[string]string{exporter.Vol: volName})
+	}()
+
+	if volName, status, err = parseRequestToMigrationStatus(r); err != nil {
+		sendErrReply(w, r, &proto.HTTPReply{Code: proto.ErrCodeParamError, Msg: err.Error()})
+		return
+	}
+
+	if err = m.cluster.migrationStatus(volName, status); err != nil {
+		sendErrReply(w, r, newErrHTTPReply(err))
+		return
+	}
+
+	msg = fmt.Sprintf("change vol[%v] migration-status to [%v]", volName, status)
 	log.LogWarn(msg)
 	sendOkReply(w, r, newSuccessHTTPReply(msg))
 }

@@ -1201,12 +1201,12 @@ func (c *Cluster) migrateVol(volName, zoneNameTo, authKey string) (err error) {
 	}
 
 	if vol.migrationInfo.status == isMigrating {
-		err = errors.New("The volume is being migrated and cannot be migrated repeatedly")
+		err = fmt.Errorf("Volume[%v] is being migrated and cannot be migrated repeatedly", volName)
 		return err
 	}
 
 	if vol.migrationInfo.status == interrupted {
-		err = errors.New("The last volume migration is incomplete. Please complete it first")
+		err = fmt.Errorf("The last migration of volume[%v] is incomplete. Please complete it first", volName)
 		return err
 	}
 
@@ -1215,6 +1215,8 @@ func (c *Cluster) migrateVol(volName, zoneNameTo, authKey string) (err error) {
 		return err
 	}
 
+	vol.migrationInfo.finishedDp = make(map[uint64]bool)
+	vol.migrationInfo.finishedMp = make(map[uint64]bool)
 	vol.migrationInfo.zoneTo = zoneTo
 	vol.zoneName = zoneNameTo
 	if err = c.syncUpdateVol(vol); err != nil {
@@ -1249,7 +1251,7 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 	})
 
 	// TODO 实现负载均衡选取zoneTo上的三个datanode，当前为轮询查找新zone里面的三个datanode作为迁移的新replica
-	go func() {
+	go func(vol *Vol, zoneTo *Zone) {
 		dn := 0 //轮询变量
 		for _, dp := range clonedDps {
 			if vol.migrationInfo.status == interrupted {
@@ -1295,6 +1297,10 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 			}
 
 			vol.migrationInfo.finishedDp[dp.PartitionID] = true
+			if err = c.syncUpdateVol(vol); err != nil {
+				vol.Status = normal
+				return
+			}
 		}
 
 		if vol.migrationInfo.status == interrupted {
@@ -1305,8 +1311,8 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 			log.LogErrorf("action[MigrateVol] err[%v]", err)
 			return
 		}
-	}()
-	return err
+	}(vol, zoneTo)
+	return
 }
 
 func dpReplicaStatus(replicas []*DataReplica, addr string) (existed bool, status bool) {
@@ -1338,7 +1344,7 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 	})
 
 	// TODO 实现负载均衡选取zoneTo上的三个metanode，当前为轮询查找新zone里面的三个metanode作为迁移的新replica
-	go func() {
+	go func(vol *Vol, zoneTo *Zone) {
 		mn := 0 //轮询变量
 		for _, mp := range clonedMps {
 			if vol.migrationInfo.status == interrupted {
@@ -1384,14 +1390,18 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 			}
 
 			vol.migrationInfo.finishedMp[mp.PartitionID] = true
+			if err = c.syncUpdateVol(vol); err != nil {
+				vol.Status = normal
+				return
+			}
 		}
 		vol.migrationInfo.status = notMigrated
 		if err = c.syncUpdateVol(vol); err != nil {
 			vol.Status = normal
 			return
 		}
-	}()
-	return err
+	}(vol, zoneTo)
+	return
 }
 
 func mpReplicaStatus(replicas []*MetaReplica, addr string) (existed bool, status bool) {
@@ -1430,7 +1440,7 @@ func (c *Cluster) migrationInfo(volName string) (msg string, err error) {
 	totalMp := len(vol.MetaPartitions)
 
 	if vol.migrationInfo.status == isMigrating {
-		msg = fmt.Sprintf("[%v] is being migrated to [%v], DP: %v of %v is finished, MP: %v of %v is finished", volName, vol.migrationInfo.zoneTo.name, finishedDp, totalDP, finishedMp, totalMp)
+		msg = fmt.Sprintf("Volume[%v] is being migrated to zone[%v], DP: %v of %v is finished, MP: %v of %v is finished", volName, vol.migrationInfo.zoneTo.name, finishedDp, totalDP, finishedMp, totalMp)
 	}
 
 	if vol.migrationInfo.status == interrupted {
@@ -1491,6 +1501,25 @@ func (c *Cluster) migrationContinue(volName string) (err error) {
 	if err = c.migrateDP(vol, vol.migrationInfo.zoneTo, clonedDps); err != nil {
 		log.LogErrorf("action[MigrateVol] err[%v]", err)
 		return err
+	}
+
+	return
+}
+
+func (c *Cluster) migrationStatus(volName string, status uint8) (err error) {
+	var (
+		vol *Vol
+	)
+
+	if vol, err = c.getVol(volName); err != nil {
+		log.LogErrorf("action[MigrateInfo] err[%v]", err)
+		return proto.ErrVolNotExists
+	}
+
+	vol.migrationInfo.status = status
+	if err = c.syncUpdateVol(vol); err != nil {
+		vol.Status = normal
+		return proto.ErrPersistenceByRaft
 	}
 
 	return
@@ -3319,6 +3348,7 @@ func (c *Cluster) doCreateVol(req *createVolReq) (vol *Vol, err error) {
 	vv.migrationInfo.status = notMigrated
 	vv.migrationInfo.finishedDp = make(map[uint64]bool)
 	vv.migrationInfo.finishedMp = make(map[uint64]bool)
+	vv.migrationInfo.zoneTo = new(Zone)
 
 	vol = newVol(vv)
 	log.LogInfof("[doCreateVol] vol, %v", vol)

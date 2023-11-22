@@ -40,6 +40,7 @@ const (
 	volTypeKey            = "volType"
 	cacheRuleKey          = "cacheRuleKey"
 	emptyCacheRuleKey     = "emptyCacheRule"
+	migrationStatus       = "migrationStatus"
 
 	forceDelVolKey             = "forceDelVol"
 	ebsBlkSizeKey              = "ebsBlkSize"

@@ -307,6 +307,34 @@ func parseRequestToVolumeName(r *http.Request) (volName string, err error) {
 	}
 
 	return
+}
+
+func parseRequestToMigrationStatus(r *http.Request) (volName string, status uint8, err error) {
+
+	if err = r.ParseForm(); err != nil {
+		return
+	}
+
+	if volName, err = extractName(r); err != nil {
+		return
+	}
+
+	var tmp string
+	if tmp, err = extractMigrationStatus(r); err != nil {
+		return
+	}
+	switch tmp {
+	case "0":
+		status = 0
+	case "1":
+		status = 1
+	case "2":
+		status = 2
+	default:
+		err = fmt.Errorf("no match status")
+	}
+
+	return
 
 }
 
@@ -1296,6 +1324,18 @@ func extractName(r *http.Request) (name string, err error) {
 	}
 	if !volNameRegexp.MatchString(name) {
 		return "", errors.New("name can only be number and letters")
+	}
+
+	return
+}
+
+func extractMigrationStatus(r *http.Request) (status string, err error) {
+	if status = r.FormValue(migrationStatus); status == "" {
+		err = keyNotFound(migrationStatus)
+		return
+	}
+	if status != "0" && status != "1" && status != "2" {
+		return "", errors.New("status can only be 0 or 1 or 2")
 	}
 
 	return

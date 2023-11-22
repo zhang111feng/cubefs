@@ -43,6 +43,7 @@ const (
 	AdminMigrationInfo                        = "/vol/migrationInfo"
 	AdminMigrationStop                        = "/vol/migrationStop"
 	AdminMigrationContinue                    = "/vol/migrationContinue"
+	AdminMigrationStatus                      = "/vol/migrationStatus"
 	AdminVolShrink                            = "/vol/shrink"
 	AdminVolExpand                            = "/vol/expand"
 	AdminCreateVol                            = "/admin/createVol"
