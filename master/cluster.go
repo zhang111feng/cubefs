@@ -1239,10 +1239,10 @@ func (c *Cluster) migrateVol(volName, zoneNameTo, authKey string) (err error) {
 	return
 }
 
+// 负载均衡版本
 func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPartition) (err error) {
 	var (
-		datanodeInZoneTo   []*DataNode
-		oldReplicaAddrInDP []string
+		datanodeInZoneTo []*DataNode
 	)
 
 	zoneTo.dataNodes.Range(func(key, value interface{}) bool {
@@ -1250,27 +1250,44 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 		return true
 	})
 
-	// TODO 实现负载均衡选取zoneTo上的三个datanode，当前为轮询查找新zone里面的三个datanode作为迁移的新replica
 	go func(vol *Vol, zoneTo *Zone) {
-		dn := 0 //轮询变量
+
 		for _, dp := range clonedDps {
+			var dpError error
 			if vol.migrationInfo.status == interrupted {
 				return
 			}
+
+			dpCanMigrate := true
+			var targetHosts []string
+			dpReplicaNum := dp.ReplicaNum
+			if c.isFaultDomain(vol) {
+				if targetHosts, _, dpError = c.getHostFromDomainZone(vol.domainId, TypeDataPartition, dpReplicaNum); dpError != nil {
+					return
+				}
+			} else {
+				zoneNum := c.decideZoneNum(vol.crossZone)
+				if targetHosts, _, dpError = c.getHostFromNormalZone(TypeDataPartition, nil, nil, nil,
+					int(dpReplicaNum), zoneNum, vol.zoneName); dpError != nil {
+					return
+				}
+			}
+
+			var oldReplicaAddrInDP []string
 			dpReplicas := dp.Replicas
 			for _, replicas := range dpReplicas {
 				oldReplicaAddrInDP = append(oldReplicaAddrInDP, replicas.Addr)
 			}
-			dnLength := len(datanodeInZoneTo)
+
 			for i := 0; i < 3; i++ {
-				dn = dn % dnLength
-				if err = c.addDataReplica(dp, datanodeInZoneTo[dn].Addr); err != nil {
-					return
+				if dpError = c.addDataReplica(dp, targetHosts[i]); dpError != nil {
+					dpCanMigrate = false
+					break
 				}
 				replicaStatus := make(chan bool)
-				go func(dp *DataPartition, dn int) {
+				go func(dp *DataPartition, targetHosts []string) {
 					for {
-						existed, rw := dpReplicaStatus(dp.Replicas, datanodeInZoneTo[dn].Addr)
+						existed, rw := dpReplicaStatus(dp.Replicas, targetHosts[i])
 						if existed && rw {
 							replicaStatus <- true
 							close(replicaStatus)
@@ -1278,11 +1295,13 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 						}
 						time.Sleep(time.Second * time.Duration(c.cfg.IntervalToCheckDataPartition))
 					}
-				}(dp, dn)
+				}(dp, targetHosts)
 				if status, ok := <-replicaStatus; status && ok {
-					dn = dn + 1
 					continue
 				}
+			}
+			if dpCanMigrate == false {
+				continue
 			}
 			for _, addr := range oldReplicaAddrInDP {
 				for {
@@ -1291,13 +1310,13 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 					}
 					time.Sleep(time.Second * time.Duration(c.cfg.IntervalToCheckDataPartition))
 				}
-				if err = c.removeDataReplica(dp, addr, true, false); err != nil {
+				if dpError = c.removeDataReplica(dp, addr, true, false); dpError != nil {
 					return
 				}
 			}
 
 			vol.migrationInfo.finishedDp[dp.PartitionID] = true
-			if err = c.syncUpdateVol(vol); err != nil {
+			if dpError = c.syncUpdateVol(vol); dpError != nil {
 				vol.Status = normal
 				return
 			}
@@ -1314,6 +1333,90 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 	}(vol, zoneTo)
 	return
 }
+
+// 轮询版本
+// func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPartition) (err error) {
+// 	var (
+// 		datanodeInZoneTo   []*DataNode
+// 	)
+
+// 	zoneTo.dataNodes.Range(func(key, value interface{}) bool {
+// 		datanodeInZoneTo = append(datanodeInZoneTo, value.(*DataNode))
+// 		return true
+// 	})
+
+// 	// TODO 实现负载均衡选取zoneTo上的三个datanode，当前为轮询查找新zone里面的三个datanode作为迁移的新replica
+// 	go func(vol *Vol, zoneTo *Zone) {
+// 		dn := 0 //轮询变量
+// 		for _, dp := range clonedDps {
+// 			if vol.migrationInfo.status == interrupted {
+// 				return
+// 			}
+// 			dpCanMigrate := true
+// 			dpReplicas := dp.Replicas
+// 			oldReplicaAddrInDP []string
+// 			for _, replicas := range dpReplicas {
+// 				oldReplicaAddrInDP = append(oldReplicaAddrInDP, replicas.Addr)
+// 			}
+// 			dnLength := len(datanodeInZoneTo)
+// 			for i := 0; i < 3; i++ {
+// 				dn = dn % dnLength
+// 				if err = c.addDataReplica(dp, targetHosts[i]); err != nil {
+// 					dpCanMigrate = false
+// 					break
+// 				}
+// 				replicaStatus := make(chan bool)
+// 				go func(dp *DataPartition, dn int) {
+// 					for {
+// 						existed, rw := dpReplicaStatus(dp.Replicas, datanodeInZoneTo[dn].Addr)
+// 						if existed && rw {
+// 							replicaStatus <- true
+// 							close(replicaStatus)
+// 							break
+// 						}
+// 						time.Sleep(time.Second * time.Duration(c.cfg.IntervalToCheckDataPartition))
+// 					}
+// 				}(dp, dn)
+// 				if status, ok := <-replicaStatus; status && ok {
+// 					dn = dn + 1
+// 					continue
+// 				}
+// 			}
+
+// 			if dpCanMigrate == false {
+// 				continue
+// 			}
+
+// 			for _, addr := range oldReplicaAddrInDP {
+// 				for {
+// 					if dp.getLeaderAddr() != "" {
+// 						break
+// 					}
+// 					time.Sleep(time.Second * time.Duration(c.cfg.IntervalToCheckDataPartition))
+// 				}
+// 				if err = c.removeDataReplica(dp, addr, true, false); err != nil {
+// 					return
+// 				}
+// 			}
+
+// 			vol.migrationInfo.finishedDp[dp.PartitionID] = true
+// 			if err = c.syncUpdateVol(vol); err != nil {
+// 				vol.Status = normal
+// 				return
+// 			}
+// 		}
+
+// 		if vol.migrationInfo.status == interrupted {
+// 			return
+// 		}
+
+// 		if err = c.migrateMP(vol, zoneTo); err != nil {
+// 			log.LogErrorf("action[MigrateVol] err[%v]", err)
+// 			return
+// 		}
+// 	}(vol, zoneTo)
+// 	return
+// }
 
 func dpReplicaStatus(replicas []*DataReplica, addr string) (existed bool, status bool) {
 	existed = false
@@ -1333,8 +1436,7 @@ func dpReplicaStatus(replicas []*DataReplica, addr string) (existed bool, status
 
 func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 	var (
-		metanodeInZoneTo   []*MetaNode
-		oldReplicaAddrInMP []string
+		metanodeInZoneTo []*MetaNode
 	)
 
 	clonedMps := vol.cloneMetaPartitionMapExceptFinished(vol.migrationInfo.finishedMp)
@@ -1347,18 +1449,23 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 	go func(vol *Vol, zoneTo *Zone) {
 		mn := 0 //轮询变量
 		for _, mp := range clonedMps {
+			var mpError error
 			if vol.migrationInfo.status == interrupted {
 				return
 			}
+
+			mpCanMigrate := true
 			mpReplicas := mp.Replicas
+			var oldReplicaAddrInMP []string
 			for _, replicas := range mpReplicas {
 				oldReplicaAddrInMP = append(oldReplicaAddrInMP, replicas.Addr)
 			}
 			mnLength := len(metanodeInZoneTo)
 			for i := 0; i < 3; i++ {
 				mn = mn % mnLength
-				if err = c.addMetaReplica(mp, metanodeInZoneTo[mn].Addr); err != nil {
-					return
+				if mpError = c.addMetaReplica(mp, metanodeInZoneTo[mn].Addr); mpError != nil {
+					mpCanMigrate = false
+					break
 				}
 				replicaStatus := make(chan bool)
 				go func(mp *MetaPartition, mn int) {
@@ -1377,6 +1484,11 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 					continue
 				}
 			}
+
+			if mpCanMigrate == false {
+				continue
+			}
+
 			for _, addr := range oldReplicaAddrInMP {
 				for {
 					if mp.isLeaderExist() {
@@ -1384,13 +1496,13 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 					}
 					time.Sleep(time.Second * time.Duration(c.cfg.IntervalToCheckDataPartition))
 				}
-				if err = c.deleteMetaReplica(mp, addr, true, false); err != nil {
+				if mpError = c.deleteMetaReplica(mp, addr, true, false); mpError != nil {
 					return
 				}
 			}
 
 			vol.migrationInfo.finishedMp[mp.PartitionID] = true
-			if err = c.syncUpdateVol(vol); err != nil {
+			if mpError = c.syncUpdateVol(vol); mpError != nil {
 				vol.Status = normal
 				return
 			}
