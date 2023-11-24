@@ -1029,7 +1029,7 @@ func newVolMigrationInfoCmd(client *master.MasterClient) *cobra.Command {
 				return
 			}
 
-			stdout("[%v]\n", *msg)
+			stdout("%v\n", *msg)
 		},
 		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 			if len(args) != 0 {

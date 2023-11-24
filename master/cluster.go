@@ -1258,7 +1258,6 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 				return
 			}
 
-			dpCanMigrate := true
 			var targetHosts []string
 			dpReplicaNum := dp.ReplicaNum
 			if c.isFaultDomain(vol) {
@@ -1281,8 +1280,7 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 
 			for i := 0; i < 3; i++ {
 				if dpError = c.addDataReplica(dp, targetHosts[i]); dpError != nil {
-					dpCanMigrate = false
-					break
+					goto finishAction
 				}
 				replicaStatus := make(chan bool)
 				go func(dp *DataPartition, targetHosts []string) {
@@ -1300,9 +1298,7 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 					continue
 				}
 			}
-			if dpCanMigrate == false {
-				continue
-			}
+
 			for _, addr := range oldReplicaAddrInDP {
 				for {
 					if dp.getLeaderAddr() != "" {
@@ -1315,6 +1311,7 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 				}
 			}
 
+		finishAction:
 			vol.migrationInfo.finishedDp[dp.PartitionID] = true
 			if dpError = c.syncUpdateVol(vol); dpError != nil {
 				vol.Status = normal
@@ -1454,7 +1451,6 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 				return
 			}
 
-			mpCanMigrate := true
 			mpReplicas := mp.Replicas
 			var oldReplicaAddrInMP []string
 			for _, replicas := range mpReplicas {
@@ -1464,8 +1460,7 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 			for i := 0; i < 3; i++ {
 				mn = mn % mnLength
 				if mpError = c.addMetaReplica(mp, metanodeInZoneTo[mn].Addr); mpError != nil {
-					mpCanMigrate = false
-					break
+					goto finishAction
 				}
 				replicaStatus := make(chan bool)
 				go func(mp *MetaPartition, mn int) {
@@ -1485,10 +1480,6 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 				}
 			}
 
-			if mpCanMigrate == false {
-				continue
-			}
-
 			for _, addr := range oldReplicaAddrInMP {
 				for {
 					if mp.isLeaderExist() {
@@ -1501,6 +1492,7 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 				}
 			}
 
+		finishAction:
 			vol.migrationInfo.finishedMp[mp.PartitionID] = true
 			if mpError = c.syncUpdateVol(vol); mpError != nil {
 				vol.Status = normal
