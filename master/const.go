@@ -197,6 +197,7 @@ const (
 	notMigrated = 0
 	isMigrating = 1
 	interrupted = 2
+	Error       = 9
 )
 
 const (

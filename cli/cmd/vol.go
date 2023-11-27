@@ -1118,10 +1118,11 @@ func newVolMigrationContinueCmd(client *master.MasterClient) *cobra.Command {
 
 const (
 	cmdVolMigrationStatusUse   = "migration-status [VOLUME NAME] [STATUS]"
-	cmdVolMigrationStatusShort = "Change migration status of the volume, STATUS can only be one of {0,1,2}\n[notMigrated] = 0, [isMigrating] = 1, [interrupted] = 2"
+	cmdVolMigrationStatusShort = "Change migration status of the volume, STATUS can only be one of {0,1,2}\n\t[notMigrated] = 0, [isMigrating] = 1, [interrupted] = 2"
 )
 
 func newVolMigrationStatusCmd(client *master.MasterClient) *cobra.Command {
+	var optYes bool
 	var cmd = &cobra.Command{
 		Use:   cmdVolMigrationStatusUse,
 		Short: cmdVolMigrationStatusShort,
@@ -1135,6 +1136,16 @@ func newVolMigrationStatusCmd(client *master.MasterClient) *cobra.Command {
 					errout("Error: %v\n", err)
 				}
 			}()
+
+			if !optYes {
+				stdout("This is a dangerous operation that can lead to unknown errors, are you sure to do that? (yes/no)[no]:")
+				var userConfirm string
+				_, _ = fmt.Scanln(&userConfirm)
+				if userConfirm != "yes" {
+					err = fmt.Errorf("Abort by user.\n")
+					return
+				}
+			}
 
 			if err = client.AdminAPI().VolMigrationStatus(volumeName, status); err != nil {
 				err = fmt.Errorf("Change failed:\n%v\n", err)
@@ -1151,5 +1162,6 @@ func newVolMigrationStatusCmd(client *master.MasterClient) *cobra.Command {
 		},
 	}
 
+	cmd.Flags().BoolVarP(&optYes, "yes", "y", false, "Answer yes for all questions")
 	return cmd
 }

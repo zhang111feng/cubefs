@@ -1762,7 +1762,7 @@ func (m *Server) migrateVol(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	msg = fmt.Sprintf("is migrating vol[%v] to [%v]", volName, zoneNameTo)
+	msg = fmt.Sprintf("vol[%v] is migrating to [%v]", volName, zoneNameTo)
 	log.LogWarn(msg)
 	sendOkReply(w, r, newSuccessHTTPReply(msg))
 }

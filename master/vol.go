@@ -117,7 +117,8 @@ type MigrationInfo struct {
 	//	finishedDpReplica map[uint64][]string
 	finishedMp map[uint64]bool
 	// finishedMpReplica map[uint64][]string
-	zoneTo *Zone
+	zoneTo   *Zone
+	errorMsg string
 }
 
 func newVol(vv volValue) (vol *Vol) {
