@@ -1280,6 +1280,11 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 				dpReplicaNum = 3 - len(replicaHasInAddr)
 			}
 			if dpReplicaNum == 0 {
+				for i := 0; i < len(replicaHasInAddr); i++ {
+					if ok := c.waitForDpReplicaStatus(dp, replicaHasInAddr, i); ok {
+						continue
+					}
+				}
 				goto removeAction
 			}
 
@@ -1305,19 +1310,7 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 					}
 					return
 				}
-				replicaStatus := make(chan bool)
-				go func(dp *DataPartition, targetHosts []string, i int) {
-					for {
-						existed, rw := dpReplicaStatus(dp.Replicas, targetHosts[i])
-						if existed && rw {
-							replicaStatus <- true
-							close(replicaStatus)
-							break
-						}
-						time.Sleep(time.Second * time.Duration(c.cfg.IntervalToCheckDataPartition))
-					}
-				}(dp, targetHosts, i)
-				if status, ok := <-replicaStatus; status && ok {
+				if ok := c.waitForDpReplicaStatus(dp, targetHosts, i); ok {
 					continue
 				}
 			}
@@ -1464,6 +1457,26 @@ func dpReplicaStatus(replicas []*DataReplica, addr string) (existed bool, status
 	return existed, status
 }
 
+func (c *Cluster) waitForDpReplicaStatus(dp *DataPartition, addr []string, i int) (ok bool) {
+
+	replicaStatus := make(chan bool)
+	go func(dp *DataPartition, addr []string, i int) {
+		for {
+			existed, rw := dpReplicaStatus(dp.Replicas, addr[i])
+			if existed && rw {
+				replicaStatus <- true
+				close(replicaStatus)
+				break
+			}
+			time.Sleep(time.Second * time.Duration(c.cfg.IntervalToCheckDataPartition))
+		}
+	}(dp, addr, i)
+	if status, ok := <-replicaStatus; status && ok {
+		return true
+	}
+	return false
+}
+
 func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 	clonedMps := vol.cloneMetaPartitionMapExceptFinished(vol.migrationInfo.finishedMp)
 
@@ -1494,6 +1507,11 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 				mpReplicaNum = 3 - len(replicaHasInAddr)
 			}
 			if mpReplicaNum == 0 {
+				for i := 0; i < len(replicaHasInAddr); i++ {
+					if ok := c.waitForMpReplicaStatus(mp, replicaHasInAddr, i); ok {
+						continue
+					}
+				}
 				goto removeAction
 			}
 
@@ -1519,19 +1537,7 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 					}
 					return
 				}
-				replicaStatus := make(chan bool)
-				go func(mp *MetaPartition, targetHosts []string, i int) {
-					for {
-						existed, rw := mpReplicaStatus(mp.Replicas, targetHosts[i])
-						if existed && rw {
-							replicaStatus <- true
-							close(replicaStatus)
-							break
-						}
-						time.Sleep(time.Second * time.Duration(c.cfg.IntervalToCheckDataPartition))
-					}
-				}(mp, targetHosts, i)
-				if status, ok := <-replicaStatus; status && ok {
+				if ok := c.waitForMpReplicaStatus(mp, targetHosts, i); ok {
 					continue
 				}
 			}
@@ -1666,6 +1672,26 @@ func mpReplicaStatus(replicas []*MetaReplica, addr string) (existed bool, status
 		}
 	}
 	return existed, status
+}
+
+func (c *Cluster) waitForMpReplicaStatus(mp *MetaPartition, addr []string, i int) (ok bool) {
+
+	replicaStatus := make(chan bool)
+	go func(mp *MetaPartition, addr []string, i int) {
+		for {
+			existed, rw := mpReplicaStatus(mp.Replicas, addr[i])
+			if existed && rw {
+				replicaStatus <- true
+				close(replicaStatus)
+				break
+			}
+			time.Sleep(time.Second * time.Duration(c.cfg.IntervalToCheckDataPartition))
+		}
+	}(mp, addr, i)
+	if status, ok := <-replicaStatus; status && ok {
+		return true
+	}
+	return false
 }
 
 func (c *Cluster) migrationInfo(volName string) (msg string, err error) {
