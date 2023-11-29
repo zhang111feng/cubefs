@@ -1206,6 +1206,12 @@ func (c *Cluster) migrateVol(volName, zoneNameTo, authKey string) (err error) {
 		return err
 	}
 
+	if vol.migrationInfo.status == markInterrupted {
+		err = fmt.Errorf("Volume[%v] migration is waiting for interruption, please wait for a moment", volName)
+		log.LogErrorf("action[MigrateVol] err[%v]", err)
+		return err
+	}
+
 	if vol.migrationInfo.status == interrupted {
 		err = fmt.Errorf("The last migration of volume[%v] is incomplete. Please complete it first", volName)
 		log.LogErrorf("action[MigrateVol] err[%v]", err)
@@ -1254,9 +1260,15 @@ func (c *Cluster) migrateVol(volName, zoneNameTo, authKey string) (err error) {
 func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPartition) (err error) {
 
 	go func(vol *Vol, zoneTo *Zone) {
+
 		for _, dp := range clonedDps {
 			var dpError error
-			if vol.migrationInfo.status == interrupted {
+			if vol.migrationInfo.status == markInterrupted {
+				vol.migrationInfo.status = interrupted
+				if err = c.syncUpdateVol(vol); err != nil {
+					vol.Status = normal
+					return
+				}
 				log.LogWarn("The migration of volume[%v] is interrupted", vol.Name)
 				return
 			}
@@ -1341,7 +1353,12 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 			}
 		}
 
-		if vol.migrationInfo.status == interrupted {
+		if vol.migrationInfo.status == markInterrupted {
+			vol.migrationInfo.status = interrupted
+			if err = c.syncUpdateVol(vol); err != nil {
+				vol.Status = normal
+				return
+			}
 			log.LogWarn("The migration of volume[%v] is interrupted", vol.Name)
 			return
 		}
@@ -1483,7 +1500,12 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 	go func(vol *Vol, zoneTo *Zone) {
 		for _, mp := range clonedMps {
 			var mpError error
-			if vol.migrationInfo.status == interrupted {
+			if vol.migrationInfo.status == markInterrupted {
+				vol.migrationInfo.status = interrupted
+				if err = c.syncUpdateVol(vol); err != nil {
+					vol.Status = normal
+					return
+				}
 				log.LogWarn("The migration of volume[%v] is interrupted", vol.Name)
 				return
 			}
@@ -1718,6 +1740,10 @@ func (c *Cluster) migrationInfo(volName string) (msg string, err error) {
 		msg = fmt.Sprintf("Volume[%v] is being migrated to zone[%v], DP: %v of %v is finished, MP: %v of %v is finished", volName, vol.migrationInfo.zoneTo.name, finishedDp, totalDP, finishedMp, totalMp)
 	}
 
+	if vol.migrationInfo.status == markInterrupted {
+		msg = fmt.Sprintf("Volume[%v] migration is waiting for interruption", volName)
+	}
+
 	if vol.migrationInfo.status == interrupted {
 		msg = fmt.Sprintf("The process of migrating [%v] to [%v] is interrupted, DP: %v of %v is finished, MP: %v of %v is finished", volName, vol.migrationInfo.zoneTo.name, finishedDp, totalDP, finishedMp, totalMp)
 	}
@@ -1739,11 +1765,15 @@ func (c *Cluster) migrationStop(volName string) (err error) {
 		return proto.ErrVolNotExists
 	}
 
+	if vol.migrationInfo.status == markInterrupted {
+		return fmt.Errorf("Volume[%v] migration is waiting for interruption, please wait for a moment", volName)
+	}
+
 	if vol.migrationInfo.status != isMigrating {
 		return fmt.Errorf("Volume[%v] is not being migrated", volName)
 	}
 
-	vol.migrationInfo.status = interrupted
+	vol.migrationInfo.status = markInterrupted
 	if err = c.syncUpdateVol(vol); err != nil {
 		vol.Status = normal
 		return proto.ErrPersistenceByRaft
@@ -1768,6 +1798,10 @@ func (c *Cluster) migrationContinue(volName string) (err error) {
 
 	if vol.migrationInfo.status == notMigrated {
 		return fmt.Errorf("Volume[%v] has no migration process that can be continued", volName)
+	}
+
+	if vol.migrationInfo.status == markInterrupted {
+		return fmt.Errorf("Volume[%v] migration is waiting for interruption, please wait for a moment", volName)
 	}
 
 	if vol.migrationInfo.status == Error {

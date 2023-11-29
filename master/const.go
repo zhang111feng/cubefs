@@ -194,10 +194,11 @@ const (
 )
 
 const (
-	notMigrated = 0
-	isMigrating = 1
-	interrupted = 2
-	Error       = 9
+	notMigrated     = 0
+	isMigrating     = 1
+	interrupted     = 2
+	markInterrupted = 8
+	Error           = 9
 )
 
 const (
