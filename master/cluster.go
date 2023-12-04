@@ -1260,16 +1260,17 @@ func (c *Cluster) migrateVol(volName, zoneNameTo, authKey string) (err error) {
 func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPartition) (err error) {
 
 	go func(vol *Vol, zoneTo *Zone) {
-
+		log.LogWarnf("The migration of volume[%v] DataPartition starts", vol.Name)
 		for _, dp := range clonedDps {
 			var dpError error
+			log.LogWarnf("The migration of volume[%v] dp[%v] starts", vol.Name, dp.PartitionID)
 			if vol.migrationInfo.status == markInterrupted {
 				vol.migrationInfo.status = interrupted
 				if err = c.syncUpdateVol(vol); err != nil {
 					vol.Status = normal
 					return
 				}
-				log.LogWarn("The migration of volume[%v] is interrupted", vol.Name)
+				log.LogWarnf("The migration of volume[%v] is interrupted", vol.Name)
 				return
 			}
 
@@ -1313,6 +1314,7 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 			}
 
 			for i := 0; i < dpReplicaNum; i++ {
+				log.LogWarnf("The addation of replica[%v] to dp[%v] starts", targetHosts[i], dp.PartitionID)
 				if dpError = c.addDataReplica(dp, targetHosts[i]); dpError != nil {
 					vol.migrationInfo.status = Error
 					vol.migrationInfo.errorMsg = fmt.Sprintf("getHostFromNormalZone failed: %v", dpError)
@@ -1323,6 +1325,7 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 					return
 				}
 				if ok := c.waitForDpReplicaStatus(dp, targetHosts, i); ok {
+					log.LogWarnf("The addation of replica[%v] to dp[%v] is finished", targetHosts[i], dp.PartitionID)
 					continue
 				}
 			}
@@ -1347,6 +1350,7 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 			}
 
 			vol.migrationInfo.finishedDp[dp.PartitionID] = true
+			log.LogWarnf("The migration of volume[%v] dp[%v] is finished", vol.Name, dp.PartitionID)
 			if dpError = c.syncUpdateVol(vol); dpError != nil {
 				vol.Status = normal
 				return
@@ -1359,9 +1363,11 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 				vol.Status = normal
 				return
 			}
-			log.LogWarn("The migration of volume[%v] is interrupted", vol.Name)
+			log.LogWarnf("The migration of volume[%v] is interrupted", vol.Name)
 			return
 		}
+
+		log.LogWarnf("All dp of volume[%v] is finished", vol.Name)
 
 		if err = c.migrateMP(vol, zoneTo); err != nil {
 			log.LogErrorf("action[MigrateVol] err[%v]", err)
@@ -1498,7 +1504,9 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 	clonedMps := vol.cloneMetaPartitionMapExceptFinished(vol.migrationInfo.finishedMp)
 
 	go func(vol *Vol, zoneTo *Zone) {
+		log.LogWarnf("The migration of volume[%v] MetaPartition starts", vol.Name)
 		for _, mp := range clonedMps {
+			log.LogWarnf("The migration of volume[%v] mp[%v] starts", vol.Name, mp.PartitionID)
 			var mpError error
 			if vol.migrationInfo.status == markInterrupted {
 				vol.migrationInfo.status = interrupted
@@ -1506,7 +1514,7 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 					vol.Status = normal
 					return
 				}
-				log.LogWarn("The migration of volume[%v] is interrupted", vol.Name)
+				log.LogWarnf("The migration of volume[%v] is interrupted", vol.Name)
 				return
 			}
 
@@ -1550,6 +1558,7 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 			}
 
 			for i := 0; i < mpReplicaNum; i++ {
+				log.LogWarnf("The addation of replica[%v] to mp[%v] starts", targetHosts[i], mp.PartitionID)
 				if mpError = c.addMetaReplica(mp, targetHosts[i]); mpError != nil {
 					vol.migrationInfo.status = Error
 					vol.migrationInfo.errorMsg = fmt.Sprintf("getHostFromNormalZone failed: %v", mpError)
@@ -1560,6 +1569,7 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 					return
 				}
 				if ok := c.waitForMpReplicaStatus(mp, targetHosts, i); ok {
+					log.LogWarnf("The addation of replica[%v] to mp[%v] is finished", targetHosts[i], mp.PartitionID)
 					continue
 				}
 			}
@@ -1584,12 +1594,15 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 				}
 			}
 
+			log.LogWarnf("The migration of volume[%v] mp[%v] is finished", vol.Name, mp.PartitionID)
 			vol.migrationInfo.finishedMp[mp.PartitionID] = true
 			if mpError = c.syncUpdateVol(vol); mpError != nil {
 				vol.Status = normal
 				return
 			}
 		}
+
+		log.LogWarnf("All migration of volume[%v] is finished", vol.Name)
 		vol.migrationInfo.status = notMigrated
 		if err = c.syncUpdateVol(vol); err != nil {
 			vol.Status = normal
