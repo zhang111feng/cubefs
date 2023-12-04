@@ -39,14 +39,15 @@ import (
 type Level uint8
 
 const (
-	DebugLevel    Level = 1
-	InfoLevel           = DebugLevel<<1 + 1
-	WarnLevel           = InfoLevel<<1 + 1
-	ErrorLevel          = WarnLevel<<1 + 1
-	FatalLevel          = ErrorLevel<<1 + 1
-	CriticalLevel       = FatalLevel << +1
-	ReadLevel           = InfoLevel
-	UpdateLevel         = InfoLevel
+	DebugLevel     Level = 1
+	InfoLevel            = DebugLevel<<1 + 1
+	WarnLevel            = InfoLevel<<1 + 1
+	ErrorLevel           = WarnLevel<<1 + 1
+	FatalLevel           = ErrorLevel<<1 + 1
+	MigrationLevel       = FatalLevel<<1 + 1
+	CriticalLevel        = MigrationLevel << +1
+	ReadLevel            = InfoLevel
+	UpdateLevel          = InfoLevel
 )
 
 const (
@@ -68,6 +69,7 @@ var levelPrefixes = []string{
 	"[READ ]",
 	"[WRITE]",
 	"[Critical]",
+	"[Migration]",
 }
 
 type RolledFile []os.FileInfo
@@ -248,29 +250,31 @@ func newLogObject(writer *asyncWriter, prefix string, flag int) *LogObject {
 
 // Log defines the log struct.
 type Log struct {
-	dir            string
-	errorLogger    *LogObject
-	warnLogger     *LogObject
-	debugLogger    *LogObject
-	infoLogger     *LogObject
-	readLogger     *LogObject
-	updateLogger   *LogObject
-	criticalLogger *LogObject
-	qosLogger      *LogObject
-	level          Level
-	rotate         *LogRotate
-	lastRolledTime time.Time
+	dir             string
+	errorLogger     *LogObject
+	warnLogger      *LogObject
+	debugLogger     *LogObject
+	infoLogger      *LogObject
+	readLogger      *LogObject
+	updateLogger    *LogObject
+	criticalLogger  *LogObject
+	migrationLogger *LogObject
+	qosLogger       *LogObject
+	level           Level
+	rotate          *LogRotate
+	lastRolledTime  time.Time
 }
 
 var (
-	ErrLogFileName      = "_error.log"
-	WarnLogFileName     = "_warn.log"
-	InfoLogFileName     = "_info.log"
-	DebugLogFileName    = "_debug.log"
-	ReadLogFileName     = "_read.log"
-	UpdateLogFileName   = "_write.log"
-	CriticalLogFileName = "_critical.log"
-	QoSLogFileName      = "_qos.log"
+	ErrLogFileName       = "_error.log"
+	WarnLogFileName      = "_warn.log"
+	InfoLogFileName      = "_info.log"
+	DebugLogFileName     = "_debug.log"
+	ReadLogFileName      = "_read.log"
+	UpdateLogFileName    = "_write.log"
+	CriticalLogFileName  = "_critical.log"
+	MigrationLogFileName = "_migration.log"
+	QoSLogFileName       = "_qos.log"
 )
 
 var gLog *Log = nil
@@ -371,8 +375,8 @@ func (l *Log) initLog(logDir, module string, level Level) error {
 		return
 	}
 	var err error
-	logHandles := [...]**LogObject{&l.debugLogger, &l.infoLogger, &l.warnLogger, &l.errorLogger, &l.readLogger, &l.updateLogger, &l.criticalLogger, &l.qosLogger}
-	logNames := [...]string{DebugLogFileName, InfoLogFileName, WarnLogFileName, ErrLogFileName, ReadLogFileName, UpdateLogFileName, CriticalLogFileName, QoSLogFileName}
+	logHandles := [...]**LogObject{&l.debugLogger, &l.infoLogger, &l.warnLogger, &l.errorLogger, &l.readLogger, &l.updateLogger, &l.criticalLogger, &l.migrationLogger, &l.qosLogger}
+	logNames := [...]string{DebugLogFileName, InfoLogFileName, WarnLogFileName, ErrLogFileName, ReadLogFileName, UpdateLogFileName, CriticalLogFileName, MigrationLogFileName, QoSLogFileName}
 	for i := range logHandles {
 		if *logHandles[i], err = newLog(logNames[i]); err != nil {
 			return err
@@ -409,6 +413,7 @@ func (l *Log) Flush() {
 		l.readLogger,
 		l.updateLogger,
 		l.criticalLogger,
+		l.migrationLogger,
 	}
 	for _, logger := range loggers {
 		if logger != nil {
@@ -442,10 +447,12 @@ func SetLogLevel(w http.ResponseWriter, r *http.Request) {
 		level = ErrorLevel
 	case "critical":
 		level = CriticalLevel
+	case "migration":
+		level = MigrationLevel
 	case "fatal":
 		level = FatalLevel
 	default:
-		err = fmt.Errorf("level only can be set :debug,info,warn,error,critical,read,write,fatal")
+		err = fmt.Errorf("level only can be set :debug,info,warn,error,critical,migration,read,write,fatal")
 		buildFailureResp(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -628,6 +635,32 @@ func LogFatalf(format string, v ...interface{}) {
 	os.Exit(1)
 }
 
+// LogMigration indicates the process of migration.
+func LogMigration(v ...interface{}) {
+	if gLog == nil {
+		return
+	}
+	if MigrationLevel&gLog.level != gLog.level {
+		return
+	}
+	s := fmt.Sprintln(v...)
+	s = gLog.SetPrefix(s, levelPrefixes[8])
+	gLog.migrationLogger.Output(2, s)
+}
+
+// LogWarnf indicates the warnings with specific format.
+func LogMigrationf(format string, v ...interface{}) {
+	if gLog == nil {
+		return
+	}
+	if MigrationLevel&gLog.level != gLog.level {
+		return
+	}
+	s := fmt.Sprintf(format, v...)
+	s = gLog.SetPrefix(s, levelPrefixes[8])
+	gLog.migrationLogger.Output(2, s)
+}
+
 // LogFatal logs the fatal errors.
 func LogCritical(v ...interface{}) {
 	if gLog == nil {
@@ -769,6 +802,7 @@ func (l *Log) checkLogRotation(logDir, module string) {
 		l.readLogger.SetRotation()
 		l.updateLogger.SetRotation()
 		l.criticalLogger.SetRotation()
+		l.migrationLogger.SetRotation()
 
 		l.lastRolledTime = now
 	}
