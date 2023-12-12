@@ -1262,7 +1262,6 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 	go func(vol *Vol, zoneTo *Zone) {
 		log.LogMigrationf("The migration of volume[%v] DataPartition starts", vol.Name)
 		for _, dp := range clonedDps {
-			var dpError error
 			log.LogMigrationf("The migration of volume[%v] dp[%v] starts", vol.Name, dp.PartitionID)
 			if vol.migrationInfo.status == markInterrupted {
 				vol.migrationInfo.status = interrupted
@@ -1301,11 +1300,11 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 				goto removeAction
 			}
 
-			if targetHosts, _, dpError = c.getHostFromNormalZone(TypeDataPartition, nil, nil, replicaHasInAddr,
-				dpReplicaNum, zoneNum, zoneTo.name); dpError != nil {
-				log.LogErrorf("action[MigrateVol] err[%v]", dpError)
+			if targetHosts, _, err = c.getHostFromNormalZone(TypeDataPartition, nil, nil, replicaHasInAddr,
+				dpReplicaNum, zoneNum, zoneTo.name); err != nil {
+				log.LogErrorf("action[MigrateVol] err[%v]", err)
 				vol.migrationInfo.status = Error
-				vol.migrationInfo.errorMsg = fmt.Sprintf("getHostFromNormalZone failed: %v", dpError)
+				vol.migrationInfo.errorMsg = fmt.Sprintf("getHostFromNormalZone failed: %v", err)
 				if err = c.syncUpdateVol(vol); err != nil {
 					vol.Status = normal
 					return
@@ -1315,15 +1314,48 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 
 			for i := 0; i < dpReplicaNum; i++ {
 				log.LogMigrationf("The addation of replica[%v] to dp[%v] starts", targetHosts[i], dp.PartitionID)
-				if dpError = c.addDataReplica(dp, targetHosts[i]); dpError != nil {
+
+				var leaderAddr string
+				var candidateAddrs []string
+				datanode, _ := c.dataNode(targetHosts[i])
+				addPeer := proto.Peer{ID: datanode.ID, Addr: targetHosts[i]}
+				if leaderAddr, candidateAddrs, err = dp.prepareAddRaftMember(addPeer); err != nil {
 					vol.migrationInfo.status = Error
-					vol.migrationInfo.errorMsg = fmt.Sprintf("getHostFromNormalZone failed: %v", dpError)
+					vol.migrationInfo.errorMsg = fmt.Sprintf("getHostFromNormalZone failed: %v", err)
+					if dp.DecommissionRetry > 0 {
+						err = nil
+						return
+					}
+					return
+				}
+
+				if err = c.addDataReplica(dp, targetHosts[i]); err != nil {
+					vol.migrationInfo.status = Error
+					vol.migrationInfo.errorMsg = fmt.Sprintf("getHostFromNormalZone failed: %v", err)
 					if err = c.syncUpdateVol(vol); err != nil {
 						vol.Status = normal
 						return
 					}
 					return
 				}
+
+				for index, host := range candidateAddrs {
+					if leaderAddr == "" && len(candidateAddrs) < int(dp.ReplicaNum) {
+						time.Sleep(retrySendSyncTaskInternal)
+					}
+					_, err = c.buildDpMigrationTaskAndSyncSendTask(dp, targetHosts[i], host)
+					if err == nil {
+						log.LogMigrationf("buildDpMigrationTaskAndSyncSendTask send to host(%v) dp(%v)", host, dp.PartitionID)
+						continue
+					}
+
+					if index < len(candidateAddrs)-1 {
+						time.Sleep(retrySendSyncTaskInternal)
+					}
+				}
+
+				log.LogMigrationf("buildDpMigrationTaskAndSyncSendTask finished")
+
 				if ok := c.waitForDpReplicaStatus(dp, targetHosts, i); ok {
 					log.LogMigrationf("The addation of replica[%v] to dp[%v] is finished", targetHosts[i], dp.PartitionID)
 					continue
@@ -1335,12 +1367,12 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 					if dp.getLeaderAddr() != "" {
 						break
 					}
-					time.Sleep(time.Second * time.Duration(c.cfg.IntervalToCheckDataPartition))
+					time.Sleep(time.Second * 2)
 				}
-				if dpError = c.removeDataReplica(dp, addr, true, false); dpError != nil {
-					log.LogErrorf("action[MigrateVol] err[%v]", dpError)
+				if err = c.removeDataReplica(dp, addr, true, false); err != nil {
+					log.LogErrorf("action[MigrateVol] err[%v]", err)
 					vol.migrationInfo.status = Error
-					vol.migrationInfo.errorMsg = fmt.Sprintf("removeDataReplica failed: %v", dpError)
+					vol.migrationInfo.errorMsg = fmt.Sprintf("removeDataReplica failed: %v", err)
 					if err = c.syncUpdateVol(vol); err != nil {
 						vol.Status = normal
 						return
@@ -1351,7 +1383,7 @@ func (c *Cluster) migrateDP(vol *Vol, zoneTo *Zone, clonedDps map[uint64]*DataPa
 
 			vol.migrationInfo.finishedDp[dp.PartitionID] = true
 			log.LogMigrationf("The migration of volume[%v] dp[%v] is finished", vol.Name, dp.PartitionID)
-			if dpError = c.syncUpdateVol(vol); dpError != nil {
+			if err = c.syncUpdateVol(vol); err != nil {
 				vol.Status = normal
 				return
 			}
@@ -1491,7 +1523,7 @@ func (c *Cluster) waitForDpReplicaStatus(dp *DataPartition, addr []string, i int
 				close(replicaStatus)
 				break
 			}
-			time.Sleep(time.Second * time.Duration(c.cfg.IntervalToCheckDataPartition))
+			time.Sleep(time.Second * 2)
 		}
 	}(dp, addr, i)
 	if status, ok := <-replicaStatus; status && ok {
@@ -1507,7 +1539,6 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 		log.LogMigrationf("The migration of volume[%v] MetaPartition starts", vol.Name)
 		for _, mp := range clonedMps {
 			log.LogMigrationf("The migration of volume[%v] mp[%v] starts", vol.Name, mp.PartitionID)
-			var mpError error
 			if vol.migrationInfo.status == markInterrupted {
 				vol.migrationInfo.status = interrupted
 				if err = c.syncUpdateVol(vol); err != nil {
@@ -1545,11 +1576,11 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 				goto removeAction
 			}
 
-			if targetHosts, _, mpError = c.getHostFromNormalZone(TypeMetaPartition, nil, nil, replicaHasInAddr,
-				mpReplicaNum, zoneNum, zoneTo.name); mpError != nil {
-				log.LogErrorf("action[MigrateVol] err[%v]", mpError)
+			if targetHosts, _, err = c.getHostFromNormalZone(TypeMetaPartition, nil, nil, replicaHasInAddr,
+				mpReplicaNum, zoneNum, zoneTo.name); err != nil {
+				log.LogErrorf("action[MigrateVol] err[%v]", err)
 				vol.migrationInfo.status = Error
-				vol.migrationInfo.errorMsg = fmt.Sprintf("getHostFromNormalZone failed: %v", mpError)
+				vol.migrationInfo.errorMsg = fmt.Sprintf("getHostFromNormalZone failed: %v", err)
 				if err = c.syncUpdateVol(vol); err != nil {
 					vol.Status = normal
 					return
@@ -1559,9 +1590,9 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 
 			for i := 0; i < mpReplicaNum; i++ {
 				log.LogMigrationf("The addation of replica[%v] to mp[%v] starts", targetHosts[i], mp.PartitionID)
-				if mpError = c.addMetaReplica(mp, targetHosts[i]); mpError != nil {
+				if err = c.addMetaReplica(mp, targetHosts[i]); err != nil {
 					vol.migrationInfo.status = Error
-					vol.migrationInfo.errorMsg = fmt.Sprintf("getHostFromNormalZone failed: %v", mpError)
+					vol.migrationInfo.errorMsg = fmt.Sprintf("getHostFromNormalZone failed: %v", err)
 					if err = c.syncUpdateVol(vol); err != nil {
 						vol.Status = normal
 						return
@@ -1580,12 +1611,12 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 					if mp.isLeaderExist() {
 						break
 					}
-					time.Sleep(time.Second * time.Duration(c.cfg.IntervalToCheckDataPartition))
+					time.Sleep(time.Second * 2)
 				}
-				if mpError = c.deleteMetaReplica(mp, addr, true, false); mpError != nil {
-					log.LogErrorf("action[MigrateVol] err[%v]", mpError)
+				if err = c.deleteMetaReplica(mp, addr, true, false); err != nil {
+					log.LogErrorf("action[MigrateVol] err[%v]", err)
 					vol.migrationInfo.status = Error
-					vol.migrationInfo.errorMsg = fmt.Sprintf("deleteMetaReplica failed: %v", mpError)
+					vol.migrationInfo.errorMsg = fmt.Sprintf("deleteMetaReplica failed: %v", err)
 					if err = c.syncUpdateVol(vol); err != nil {
 						vol.Status = normal
 						return
@@ -1596,7 +1627,7 @@ func (c *Cluster) migrateMP(vol *Vol, zoneTo *Zone) (err error) {
 
 			log.LogMigrationf("The migration of volume[%v] mp[%v] is finished", vol.Name, mp.PartitionID)
 			vol.migrationInfo.finishedMp[mp.PartitionID] = true
-			if mpError = c.syncUpdateVol(vol); mpError != nil {
+			if err = c.syncUpdateVol(vol); err != nil {
 				vol.Status = normal
 				return
 			}
@@ -1720,7 +1751,7 @@ func (c *Cluster) waitForMpReplicaStatus(mp *MetaPartition, addr []string, i int
 				close(replicaStatus)
 				break
 			}
-			time.Sleep(time.Second * time.Duration(c.cfg.IntervalToCheckDataPartition))
+			time.Sleep(time.Second * 2)
 		}
 	}(mp, addr, i)
 	if status, ok := <-replicaStatus; status && ok {
@@ -2973,6 +3004,34 @@ func (c *Cluster) buildAddDataPartitionRaftMemberTaskAndSyncSendTask(dp *DataPar
 	return
 }
 
+func (c *Cluster) buildDpMigrationTaskAndSyncSendTask(dp *DataPartition, migrateReplicaAddr, leaderAddr string) (resp *proto.Packet, err error) {
+	log.LogInfof("action[buildDpMigrationTaskAndSyncSendTask] dp[%v] replica[%v] start", dp.PartitionID, migrateReplicaAddr)
+	defer func() {
+		var resultCode uint8
+		if resp != nil {
+			resultCode = resp.ResultCode
+		}
+		if err != nil {
+			log.LogErrorf("vol[%v],data partition[%v],resultCode[%v],err[%v]", dp.VolName, dp.PartitionID, resultCode, err)
+		} else {
+			log.LogWarnf("vol[%v],data partition[%v],resultCode[%v],err[%v]", dp.VolName, dp.PartitionID, resultCode, err)
+		}
+	}()
+	task, err := dp.createTaskToMigrateDp(1, leaderAddr, dp.PartitionID, migrateReplicaAddr)
+	if err != nil {
+		return
+	}
+	leaderDataNode, err := c.dataNode(leaderAddr)
+	if err != nil {
+		return
+	}
+	if resp, err = leaderDataNode.TaskManager.syncSendAdminTask(task); err != nil {
+		return
+	}
+	log.LogInfof("action[buildDpMigrationTaskAndSyncSendTask] migrate  dp[%v] replica[%v] finished", dp.PartitionID, migrateReplicaAddr)
+	return
+}
+
 func (c *Cluster) addDataPartitionRaftMember(dp *DataPartition, addPeer proto.Peer) (err error) {
 	var (
 		candidateAddrs []string
@@ -2988,6 +3047,26 @@ func (c *Cluster) addDataPartitionRaftMember(dp *DataPartition, addPeer proto.Pe
 		return
 	}
 
+	dp.Lock()
+
+	oldHosts := make([]string, len(dp.Hosts))
+	copy(oldHosts, dp.Hosts)
+	oldPeers := make([]proto.Peer, len(dp.Peers))
+	copy(oldPeers, dp.Peers)
+
+	newHosts := make([]string, 0, len(dp.Hosts)+1)
+	newPeers := make([]proto.Peer, 0, len(dp.Peers)+1)
+	newHosts = append(dp.Hosts, addPeer.Addr)
+	newPeers = append(dp.Peers, addPeer)
+
+	log.LogInfof("action[addDataPartitionRaftMember] try host [%v] to [%v] peers [%v] to [%v]",
+		dp.Hosts, newHosts, dp.Peers, newPeers)
+	if err = dp.update("addDataPartitionRaftMember", dp.VolName, newPeers, newHosts, c); err != nil {
+		dp.Unlock()
+		return
+	}
+	dp.Unlock()
+
 	//send task to leader addr first,if need to retry,then send to other addr
 	for index, host := range candidateAddrs {
 		if leaderAddr == "" && len(candidateAddrs) < int(dp.ReplicaNum) {
@@ -2997,6 +3076,13 @@ func (c *Cluster) addDataPartitionRaftMember(dp *DataPartition, addPeer proto.Pe
 		if err == nil {
 			break
 		}
+		if err != nil {
+			dp.Lock()
+			defer dp.Unlock()
+			if err = dp.rollbackUpdate("addDataPartitionRaftMember", dp.VolName, oldPeers, oldHosts, c); err != nil {
+				return
+			}
+		}
 		if index < len(candidateAddrs)-1 {
 			time.Sleep(retrySendSyncTaskInternal)
 		}
@@ -3005,17 +3091,15 @@ func (c *Cluster) addDataPartitionRaftMember(dp *DataPartition, addPeer proto.Pe
 	if err != nil {
 		return
 	}
-	dp.Lock()
-	defer dp.Unlock()
-	newHosts := make([]string, 0, len(dp.Hosts)+1)
-	newPeers := make([]proto.Peer, 0, len(dp.Peers)+1)
-	newHosts = append(dp.Hosts, addPeer.Addr)
-	newPeers = append(dp.Peers, addPeer)
 
-	log.LogInfof("action[addDataPartitionRaftMember] try host [%v] to [%v] peers [%v] to [%v]",
-		dp.Hosts, newHosts, dp.Peers, newPeers)
-	if err = dp.update("addDataPartitionRaftMember", dp.VolName, newPeers, newHosts, c); err != nil {
-		return
+	return
+}
+
+func (partition *DataPartition) rollbackUpdate(action, volName string, oldPeers []proto.Peer, oldHosts []string, c *Cluster) (err error) {
+	partition.Hosts = oldHosts
+	partition.Peers = oldPeers
+	if err = c.syncUpdateDataPartition(partition); err != nil {
+		return errors.Trace(err, "action[%v] rollback update partition[%v] vol[%v] failed", action, partition.PartitionID, volName)
 	}
 	return
 }

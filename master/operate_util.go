@@ -54,6 +54,15 @@ func newDeleteDataPartitionRequest(ID uint64) (req *proto.DeleteDataPartitionReq
 	return
 }
 
+func newMigrateDpRequest(ifMigrate uint64, migrateDp uint64, migrateReplica string) (req *proto.MigrateDpRequest) {
+	req = &proto.MigrateDpRequest{
+		IfMigrate:          ifMigrate,
+		PartitionID:        migrateDp,
+		MigrateReplicaAddr: migrateReplica,
+	}
+	return
+}
+
 func newAddDataPartitionRaftMemberRequest(ID uint64, addPeer proto.Peer) (req *proto.AddDataPartitionRaftMemberRequest) {
 	req = &proto.AddDataPartitionRaftMemberRequest{
 		PartitionId: ID,

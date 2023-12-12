@@ -167,6 +167,8 @@ func (s *DataNode) OperatePacket(p *repl.Packet, c net.Conn) (err error) {
 		s.handlePacketToGetMaxExtentIDAndPartitionSize(p)
 	case proto.OpReadTinyDeleteRecord:
 		s.handlePacketToReadTinyDeleteRecordFile(p, c)
+	case proto.OpDpMigration:
+		s.handlePacketToMigrateDp(p)
 	case proto.OpBroadcastMinAppliedID:
 		s.handleBroadcastMinAppliedID(p)
 	default:
@@ -1042,6 +1044,58 @@ func (s *DataNode) handlePacketToDecommissionDataPartition(p *repl.Packet) {
 	if err != nil {
 		return
 	}
+	return
+}
+
+func (s *DataNode) handlePacketToMigrateDp(p *repl.Packet) {
+	var (
+		err     error
+		reqData []byte
+		req     = &proto.MigrateDpRequest{}
+	)
+
+	defer func() {
+		if err != nil {
+			p.PackErrorBody(ActionMigrateDp, err.Error())
+		} else {
+			p.PacketOkReply()
+		}
+	}()
+
+	adminTask := &proto.AdminTask{}
+	decode := json.NewDecoder(bytes.NewBuffer(p.Data))
+	decode.UseNumber()
+	if err = decode.Decode(adminTask); err != nil {
+		return
+	}
+
+	reqData, err = json.Marshal(adminTask.Request)
+	if err != nil {
+		return
+	}
+	if err = json.Unmarshal(reqData, req); err != nil {
+		return
+	}
+
+	log.LogInfof("action[handlePacketToMigrateDp] dp[%v] replica[%v]", req.PartitionID, req.MigrateReplicaAddr)
+
+	p.AddMesgLog(string(reqData))
+	dp := s.space.Partition(req.PartitionID)
+	if dp == nil {
+		err = proto.ErrDataPartitionNotExists
+		return
+	}
+	p.PartitionID = req.PartitionID
+
+	if !dp.isLeader {
+		return
+	}
+
+	if req.IfMigrate == 1 {
+		dp.migrationC <- 1
+	}
+	log.LogInfof("action[handlePacketToMigrateDp] dp[%v] replica[%v] set MigrationC <- 1", req.PartitionID, req.MigrateReplicaAddr)
+
 	return
 }
 

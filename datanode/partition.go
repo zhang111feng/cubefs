@@ -121,10 +121,11 @@ type DataPartition struct {
 	minAppliedID    uint64
 	maxAppliedID    uint64
 
-	stopOnce  sync.Once
-	stopRaftC chan uint64
-	storeC    chan uint64
-	stopC     chan bool
+	migrationC chan uint64
+	stopOnce   sync.Once
+	stopRaftC  chan uint64
+	storeC     chan uint64
+	stopC      chan bool
 
 	raftStatus int32
 
@@ -289,6 +290,7 @@ func newDataPartition(dpCfg *dataPartitionCfg, disk *Disk, isCreate bool) (dp *D
 		stopC:           make(chan bool, 0),
 		stopRaftC:       make(chan uint64, 0),
 		storeC:          make(chan uint64, 128),
+		migrationC:      make(chan uint64, 1),
 		snapshot:        make([]*proto.File, 0),
 		partitionStatus: proto.ReadWrite,
 		config:          dpCfg,
@@ -444,6 +446,7 @@ func (dp *DataPartition) Stop() {
 		// Close the store and raftstore.
 		dp.stopRaft()
 		dp.extentStore.Close()
+		close(dp.migrationC)
 		_ = dp.storeAppliedID(atomic.LoadUint64(&dp.appliedID))
 	})
 	return
@@ -535,6 +538,11 @@ func (dp *DataPartition) statusUpdateScheduler() {
 	var index int
 	for {
 		select {
+		case <-dp.migrationC:
+			dp.statusUpdate()
+			dp.LaunchRepair(proto.TinyExtentType)
+			dp.LaunchRepair(proto.NormalExtentType)
+
 		case <-ticker.C:
 			dp.statusUpdate()
 			// only repair tiny extent
@@ -922,7 +930,6 @@ func (dp *DataPartition) ChangeRaftMember(changeType raftProto.ConfChangeType, p
 	return
 }
 
-//
 func (dp *DataPartition) canRemoveSelf() (canRemove bool, err error) {
 	var partition *proto.DataPartitionInfo
 	if partition, err = MasterClient.AdminAPI().GetDataPartition(dp.volumeID, dp.partitionID); err != nil {

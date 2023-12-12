@@ -398,6 +398,13 @@ type DataPartitionDecommissionRequest struct {
 	AddPeer     Peer
 }
 
+// MigrateDpRequest defines the request of migrate dp.
+type MigrateDpRequest struct {
+	IfMigrate          uint64
+	PartitionID        uint64
+	MigrateReplicaAddr string
+}
+
 // AddDataPartitionRaftMemberRequest defines the request of add raftMember a data partition.
 type AddDataPartitionRaftMemberRequest struct {
 	PartitionId uint64

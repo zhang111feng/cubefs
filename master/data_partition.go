@@ -204,6 +204,12 @@ func (partition *DataPartition) prepareAddRaftMember(addPeer proto.Peer) (leader
 	return
 }
 
+func (partition *DataPartition) createTaskToMigrateDp(ifMigrate uint64, leaderAddr string, migrateDpId uint64, migrateReplicaAddr string) (task *proto.AdminTask, err error) {
+	task = proto.NewAdminTask(proto.OpDpMigration, leaderAddr, newMigrateDpRequest(ifMigrate, migrateDpId, migrateReplicaAddr))
+	partition.resetTaskID(task)
+	return
+}
+
 func (partition *DataPartition) createTaskToTryToChangeLeader(addr string) (task *proto.AdminTask, err error) {
 	task = proto.NewAdminTask(proto.OpDataPartitionTryToLeader, addr, nil)
 	partition.resetTaskID(task)
