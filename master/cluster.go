@@ -1513,7 +1513,6 @@ func dpReplicaStatus(replicas []*DataReplica, addr string) (existed bool, status
 }
 
 func (c *Cluster) waitForDpReplicaStatus(dp *DataPartition, addr []string, i int) (ok bool) {
-
 	replicaStatus := make(chan bool)
 	go func(dp *DataPartition, addr []string, i int) {
 		for {
@@ -3059,12 +3058,6 @@ func (c *Cluster) addDataPartitionRaftMember(dp *DataPartition, addPeer proto.Pe
 	newHosts = append(dp.Hosts, addPeer.Addr)
 	newPeers = append(dp.Peers, addPeer)
 
-	log.LogInfof("action[addDataPartitionRaftMember] try host [%v] to [%v] peers [%v] to [%v]",
-		dp.Hosts, newHosts, dp.Peers, newPeers)
-	if err = dp.update("addDataPartitionRaftMember", dp.VolName, newPeers, newHosts, c); err != nil {
-		dp.Unlock()
-		return
-	}
 	dp.Unlock()
 
 	//send task to leader addr first,if need to retry,then send to other addr
@@ -3076,32 +3069,28 @@ func (c *Cluster) addDataPartitionRaftMember(dp *DataPartition, addPeer proto.Pe
 		if err == nil {
 			break
 		}
-		if err != nil {
-			dp.Lock()
-			defer dp.Unlock()
-			if err = dp.rollbackUpdate("addDataPartitionRaftMember", dp.VolName, oldPeers, oldHosts, c); err != nil {
-				return
-			}
-		}
 		if index < len(candidateAddrs)-1 {
 			time.Sleep(retrySendSyncTaskInternal)
 		}
 	}
 
+	dp.Lock()
+	defer dp.Unlock()
 	if err != nil {
+		dp.Hosts = oldHosts
+		dp.Peers = oldPeers
+		return
+	}
+
+	log.LogInfof("action[addDataPartitionRaftMember] try host [%v] to [%v] peers [%v] to [%v]",
+		dp.Hosts, newHosts, dp.Peers, newPeers)
+
+	if err = dp.update("addDataPartitionRaftMember", dp.VolName, newPeers, newHosts, c); err != nil {
 		return
 	}
 
 	return
-}
 
-func (partition *DataPartition) rollbackUpdate(action, volName string, oldPeers []proto.Peer, oldHosts []string, c *Cluster) (err error) {
-	partition.Hosts = oldHosts
-	partition.Peers = oldPeers
-	if err = c.syncUpdateDataPartition(partition); err != nil {
-		return errors.Trace(err, "action[%v] rollback update partition[%v] vol[%v] failed", action, partition.PartitionID, volName)
-	}
-	return
 }
 
 func (c *Cluster) createDataReplica(dp *DataPartition, addPeer proto.Peer) (err error) {
