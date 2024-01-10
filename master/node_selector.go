@@ -41,6 +41,8 @@ type Node interface {
 	SelectNodeForWrite()
 	GetID() uint64
 	GetAddr() string
+	GetHeartbeatPort() string
+	GetReplicaPort() string
 }
 
 // SortedWeightedNodes defines an array sorted by carry
@@ -229,7 +231,7 @@ func getAvailHosts(nodes *sync.Map, excludeHosts []string, replicaNum int, selec
 		node := weightedNodes[i].Ptr
 		node.SelectNodeForWrite()
 		orderHosts = append(orderHosts, node.GetAddr())
-		peer := proto.Peer{ID: node.GetID(), Addr: node.GetAddr()}
+		peer := proto.Peer{ID: node.GetID(), Addr: node.GetAddr(), HeartbeatPort: node.GetHeartbeatPort(), ReplicaPort: node.GetReplicaPort()}
 		peers = append(peers, peer)
 	}
 	log.LogInfof("action[getAvailHosts] peers[%v]", peers)

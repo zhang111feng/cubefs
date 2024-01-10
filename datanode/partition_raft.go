@@ -81,9 +81,7 @@ func (dp *DataPartition) StartRaft(isLoad bool) (err error) {
 	}
 
 	var (
-		heartbeatPort int
-		replicaPort   int
-		peers         []raftstore.PeerAddress
+		peers []raftstore.PeerAddress
 	)
 	defer func() {
 		if r := recover(); r != nil {
@@ -98,11 +96,10 @@ func (dp *DataPartition) StartRaft(isLoad bool) (err error) {
 		}
 	}()
 
-	if heartbeatPort, replicaPort, err = dp.raftPort(); err != nil {
-		return
-	}
 	for _, peer := range dp.config.Peers {
 		addr := strings.Split(peer.Addr, ":")[0]
+		heartbeatPort, _ := strconv.Atoi(peer.HeartbeatPort)
+		replicaPort, _ := strconv.Atoi(peer.ReplicaPort)
 		rp := raftstore.PeerAddress{
 			Peer: raftproto.Peer{
 				ID: peer.ID,
@@ -361,9 +358,17 @@ func (dp *DataPartition) addRaftNode(req *proto.AddDataPartitionRaftMemberReques
 		heartbeatPort int
 		replicaPort   int
 	)
-	if heartbeatPort, replicaPort, err = dp.raftPort(); err != nil {
+
+	heartbeatPort, err = strconv.Atoi(req.AddPeer.HeartbeatPort)
+	if err != nil {
 		return
 	}
+
+	replicaPort, err = strconv.Atoi(req.AddPeer.ReplicaPort)
+	if err != nil {
+		return
+	}
+
 	log.LogInfof("action[addRaftNode] add raft node peer [%v]", req.AddPeer)
 	found := false
 	for _, peer := range dp.config.Peers {

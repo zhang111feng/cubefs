@@ -440,9 +440,10 @@ type OpQuota interface {
 // metaPartition manages the range of the inode IDs.
 // When a new inode is requested, it allocates a new inode id for this inode if possible.
 // States:
-//  +-----+             +-------+
-//  | New | → Restore → | Ready |
-//  +-----+             +-------+
+//
+//	+-----+             +-------+
+//	| New | → Restore → | Ready |
+//	+-----+             +-------+
 type metaPartition struct {
 	config                 *MetaPartitionConfig
 	size                   uint64                // For partition all file size
@@ -665,14 +666,18 @@ func (mp *metaPartition) onStop() {
 
 func (mp *metaPartition) startRaft() (err error) {
 	var (
-		heartbeatPort int
-		replicaPort   int
-		peers         []raftstore.PeerAddress
+		peers []raftstore.PeerAddress
 	)
-	if heartbeatPort, replicaPort, err = mp.getRaftPort(); err != nil {
-		return
-	}
+
 	for _, peer := range mp.config.Peers {
+		heartbeatPort, err := strconv.Atoi(peer.HeartbeatPort)
+		if err != nil {
+			return err
+		}
+		replicaPort, err := strconv.Atoi(peer.ReplicaPort)
+		if err != nil {
+			return err
+		}
 		addr := strings.Split(peer.Addr, ":")[0]
 		rp := raftstore.PeerAddress{
 			Peer: raftproto.Peer{

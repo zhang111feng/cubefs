@@ -27,9 +27,18 @@ type NodeAPI struct {
 }
 
 func (api *NodeAPI) AddDataNode(serverAddr, zoneName string) (id uint64, err error) {
+	if _, err = api.AddDataNodeWithPort(serverAddr, zoneName, "", ""); err != nil {
+		return
+	}
+	return
+}
+
+func (api *NodeAPI) AddDataNodeWithPort(serverAddr, zoneName, heartbeatPort, replicaPort string) (id uint64, err error) {
 	var request = newAPIRequest(http.MethodGet, proto.AddDataNode)
 	request.addParam("addr", serverAddr)
 	request.addParam("zoneName", zoneName)
+	request.addParam("heartbeatPort", heartbeatPort)
+	request.addParam("replicaPort", replicaPort)
 	var data []byte
 	if data, err = api.mc.serveRequest(request); err != nil {
 		return
@@ -39,9 +48,18 @@ func (api *NodeAPI) AddDataNode(serverAddr, zoneName string) (id uint64, err err
 }
 
 func (api *NodeAPI) AddMetaNode(serverAddr, zoneName string) (id uint64, err error) {
+	if _, err = api.AddMetaNodeWithPort(serverAddr, zoneName, "", ""); err != nil {
+		return
+	}
+	return
+}
+
+func (api *NodeAPI) AddMetaNodeWithPort(serverAddr, zoneName, heartbeatPort, replicaPort string) (id uint64, err error) {
 	var request = newAPIRequest(http.MethodGet, proto.AddMetaNode)
 	request.addParam("addr", serverAddr)
 	request.addParam("zoneName", zoneName)
+	request.addParam("heartbeatPort", heartbeatPort)
+	request.addParam("replicaPort", replicaPort)
 	var data []byte
 	if data, err = api.mc.serveRequest(request); err != nil {
 		return
