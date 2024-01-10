@@ -433,10 +433,12 @@ func (s *ClusterService) metaNodeList(ctx context.Context, args struct{}) ([]*Me
 }
 
 func (m *ClusterService) addMetaNode(ctx context.Context, args struct {
-	NodeAddr string
-	ZoneName string
+	NodeAddr      string
+	ZoneName      string
+	HeartbeatPort string
+	ReplicaPort   string
 }) (uint64, error) {
-	if id, err := m.cluster.addMetaNode(args.NodeAddr, args.ZoneName, 0); err != nil {
+	if id, err := m.cluster.addMetaNode(args.NodeAddr, args.ZoneName, args.HeartbeatPort, args.ReplicaPort, 0); err != nil {
 		return 0, err
 	} else {
 		return id, nil
@@ -478,12 +480,12 @@ func (m *ClusterService) addRaftNode(ctx context.Context, args struct {
 
 // Turn on or off the automatic allocation of the data partitions.
 // If DisableAutoAllocate == off, then we WILL NOT automatically allocate new data partitions for the volume when:
-// 	1. the used space is below the max capacity,
-//	2. and the number of r&w data partition is less than 20.
+//  1. the used space is below the max capacity,
+//  2. and the number of r&w data partition is less than 20.
 //
 // If DisableAutoAllocate == on, then we WILL automatically allocate new data partitions for the volume when:
-// 	1. the used space is below the max capacity,
-//	2. and the number of r&w data partition is less than 20.
+//  1. the used space is below the max capacity,
+//  2. and the number of r&w data partition is less than 20.
 func (m *ClusterService) clusterFreeze(ctx context.Context, args struct {
 	Status bool
 }) (*proto.GeneralResp, error) {
