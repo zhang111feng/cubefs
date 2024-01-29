@@ -368,6 +368,17 @@ func (manager *SpaceManager) DeletePartition(dpID uint64) {
 	os.RemoveAll(dp.Path())
 }
 
+// UpdatePartition updates a partition based on the partition id.
+func (manager *SpaceManager) UpdatePartition(dpID uint64, peers []proto.Peer) {
+	manager.partitionMutex.Lock()
+	defer manager.partitionMutex.Unlock()
+
+	dp := manager.partitions[dpID]
+	if dp == nil {
+		return
+	}
+}
+
 func (s *DataNode) buildHeartBeatResponse(response *proto.DataNodeHeartbeatResponse) {
 	response.Status = proto.TaskSucceeds
 	stat := s.space.Stats()
