@@ -393,6 +393,8 @@ func (dp *DataPartition) addRaftNode(req *proto.AddDataPartitionRaftMemberReques
 			return
 		}
 	}
+	req.AddPeer.HeartbeatPort = strconv.Itoa(heartbeatPort)
+	req.AddPeer.ReplicaPort = strconv.Itoa(replicaPort)
 
 	log.LogInfof("action[addRaftNode] add raft node peer [%v]", req.AddPeer)
 	found := false
@@ -516,7 +518,10 @@ func (dp *DataPartition) updateRaftPeer(req *proto.UpdateDataPartitionPeerReques
 	log.LogInfof("action[updateRaftPeer] update raft node peer [%v]", req.Peer)
 
 	peerHasChange := false
-	oldPeers := dp.config.Peers
+
+	oldPeers := make([]proto.Peer, len(dp.config.Peers))
+	copy(oldPeers, dp.config.Peers)
+
 	for i, peer := range dp.config.Peers {
 		if peer.ID == req.Peer.ID {
 			if dp.config.Peers[i].HeartbeatPort != strconv.Itoa(heartbeatPort) {

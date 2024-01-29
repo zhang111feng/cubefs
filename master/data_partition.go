@@ -220,7 +220,6 @@ func (partition *DataPartition) prepareAddRaftMember(addPeer proto.Peer) (leader
 }
 
 func (partition *DataPartition) prepareUpdateRaftMember(newPeer proto.Peer) (leaderAddr string, candidateAddrs []string, err error) {
-
 	if !contains(partition.Hosts, newPeer.Addr) {
 		err = fmt.Errorf("vol[%v],data partition[%v] doesn't contain host[%v]", partition.VolName, partition.PartitionID, newPeer.Addr)
 		return
@@ -607,7 +606,7 @@ func (partition *DataPartition) checkReplicaNum(c *Cluster, vol *Vol) {
 	}
 }
 
-func (partition *DataPartition) checkPeers(c *Cluster) {
+func (partition *DataPartition) checkDpPeers(c *Cluster) {
 	partition.Lock()
 	defer partition.Unlock()
 

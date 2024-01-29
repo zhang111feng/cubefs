@@ -1506,7 +1506,7 @@ func (s *DataNode) handlePacketToUpdateDataPartitionPeer(p *repl.Packet) {
 		return
 	}
 
-	log.LogDebugf("action[handlePacketToUpdateDataPartitionPeers], req %v (%s) Peers(%s) dp %v replicaNum %v",
+	log.LogDebugf("action[handlePacketToUpdateDataPartitionPeers], req %v (%s) Peers(%v) dp %v replicaNum %v",
 		p.GetReqID(), string(reqData), req.Peer, dp.partitionID, dp.replicaNum)
 
 	p.PartitionID = req.PartitionId
@@ -1526,19 +1526,7 @@ func (s *DataNode) handlePacketToUpdateDataPartitionPeer(p *repl.Packet) {
 		}
 	}
 
-	// cc := &raftProto.ConfChange{
-	// 	Type: raftProto.ConfUpdatePeer,
-	// 	Peer: raftProto.Peer{
-	// 		ID: req.Peer.ID,
-	// 	},
-	// 	Context: reqData,
-	// }
-
-	// dp.ApplyMemberChange(cc, 0)
-	// dp.PersistMetadata()
-
 	return
-
 }
 
 func (s *DataNode) handlePacketToDataPartitionTryToLeader(p *repl.Packet) {

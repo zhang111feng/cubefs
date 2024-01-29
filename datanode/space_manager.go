@@ -445,7 +445,6 @@ func (manager *SpaceManager) UpdatePartition(dpID uint64, peers []proto.Peer) {
 	if dp == nil {
 		return
 	}
-
 }
 
 func (s *DataNode) buildHeartBeatResponse(response *proto.DataNodeHeartbeatResponse) {
