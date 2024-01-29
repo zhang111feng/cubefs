@@ -293,6 +293,12 @@ func (partition *DataPartition) createTaskToDeleteDataPartition(addr string) (ta
 	return
 }
 
+func (partition *DataPartition) createTaskToUpdateDataPartitionPeer(addr string, peer proto.Peer) (task *proto.AdminTask) {
+	task = proto.NewAdminTask(proto.OpUpdateDataPartitionPeer, addr, newUpdateDataPartitionPeerRequest(partition.PartitionID, peer))
+	partition.resetTaskID(task)
+	return
+}
+
 func (partition *DataPartition) resetTaskID(t *proto.AdminTask) {
 	t.ID = fmt.Sprintf("%v_DataPartitionID[%v]", t.ID, partition.PartitionID)
 	t.PartitionID = partition.PartitionID
@@ -577,6 +583,48 @@ func (partition *DataPartition) checkReplicaNum(c *Cluster, vol *Vol) {
 			partition.VolName, partition.PartitionID, vol.dpReplicaNum, partition.ReplicaNum)
 		vol.NeedToLowerReplica = true
 	}
+}
+
+func (partition *DataPartition) checkPeers(c *Cluster) {
+	partition.Lock()
+	defer partition.Unlock()
+
+	newPeers := make([]proto.Peer, len(partition.Peers))
+	copy(newPeers, partition.Peers)
+	newHosts := make([]string, len(partition.Hosts))
+	copy(newHosts, partition.Hosts)
+
+	for _, peer := range newPeers {
+		if node, ok := c.dataNodes.Load(peer.Addr); ok {
+			needUpdate := false
+			dataNode := node.(*DataNode)
+
+			if peer.HeartbeatPort != dataNode.HeartbeatPort {
+				needUpdate = true
+				peer.HeartbeatPort = dataNode.HeartbeatPort
+			}
+
+			if peer.ReplicaPort != dataNode.ReplicaPort {
+				needUpdate = true
+				peer.ReplicaPort = dataNode.ReplicaPort
+			}
+
+			if needUpdate == true {
+				for _, host := range newHosts {
+					if err := partition.createTaskToUpdateDataPartitionPeer(host, peer); err != nil {
+						return
+					}
+				}
+			}
+		}
+
+	}
+	if err := partition.update("checkPeers", partition.VolName, newPeers, newHosts, c); err != nil {
+		log.LogErrorf("checkPeers failed : %v", err)
+		return
+	}
+
+	return
 }
 
 func (partition *DataPartition) hostsToString() (hosts string) {
@@ -1630,7 +1678,7 @@ func (partition *DataPartition) restoreReplicaMeta(c *Cluster) (err error) {
 			partition.PartitionID, partition.DecommissionSrcAddr, err.Error())
 		return
 	}
-	addPeer := proto.Peer{ID: srcDataNode.ID, Addr: partition.DecommissionSrcAddr}
+	addPeer := proto.Peer{ID: srcDataNode.ID, Addr: partition.DecommissionSrcAddr, HeartbeatPort: srcDataNode.HeartbeatPort, ReplicaPort: srcDataNode.ReplicaPort}
 	if err = c.addDataPartitionRaftMember(partition, addPeer); err != nil {
 		log.LogWarnf("action[restoreReplicaMeta]partition %v metadata addReplica %v failed:%v",
 			partition.PartitionID, partition.DecommissionSrcAddr, err.Error())

@@ -1013,6 +1013,16 @@ func (c *Cluster) addDataNode(nodeAddr, zoneName, heartbeatPort, replicaPort str
 		if nodesetId > 0 && nodesetId != dataNode.NodeSetID {
 			return dataNode.ID, fmt.Errorf("addr already in nodeset [%v]", nodeAddr)
 		}
+		dataNode.HeartbeatPort = heartbeatPort
+		dataNode.ReplicaPort = replicaPort
+		if err := c.syncUpdateDataNode(dataNode); err != nil {
+			return dataNode.ID, fmt.Errorf("update datanode failed addr [%v]", nodeAddr)
+		}
+
+		existedPartitions := c.getAllDataPartitionByDataNode(nodeAddr)
+		for _, dp := range existedPartitions {
+			dp.checkPeers(c)
+		}
 		return dataNode.ID, nil
 	}
 

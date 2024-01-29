@@ -81,7 +81,12 @@ func (dp *DataPartition) StartRaft(isLoad bool) (err error) {
 		return nil
 	}
 
-	var peers []raftstore.PeerAddress
+	var (
+		heartbeatPort int
+		replicaPort   int
+		peers         []raftstore.PeerAddress
+	)
+
 	defer func() {
 		if r := recover(); r != nil {
 			mesg := fmt.Sprintf("StartRaft(%v)  Raft Panic (%v)", dp.partitionID, r)
@@ -95,10 +100,23 @@ func (dp *DataPartition) StartRaft(isLoad bool) (err error) {
 		}
 	}()
 
+	if heartbeatPort, replicaPort, err = dp.raftPort(); err != nil {
+		return
+	}
+
 	for _, peer := range dp.config.Peers {
 		addr := strings.Split(peer.Addr, ":")[0]
-		heartbeatPort, _ := strconv.Atoi(peer.HeartbeatPort)
-		replicaPort, _ := strconv.Atoi(peer.ReplicaPort)
+
+		if peer.HeartbeatPort != "" {
+			heartbeatPort, err = strconv.Atoi(peer.HeartbeatPort)
+		}
+		if peer.ReplicaPort != "" {
+			replicaPort, err = strconv.Atoi(peer.ReplicaPort)
+		}
+		if err != nil {
+			return
+		}
+
 		rp := raftstore.PeerAddress{
 			Peer: raftproto.Peer{
 				ID: peer.ID,
@@ -358,14 +376,22 @@ func (dp *DataPartition) addRaftNode(req *proto.AddDataPartitionRaftMemberReques
 		replicaPort   int
 	)
 
-	heartbeatPort, err = strconv.Atoi(req.AddPeer.HeartbeatPort)
-	if err != nil {
+	if heartbeatPort, replicaPort, err = dp.raftPort(); err != nil {
 		return
 	}
 
-	replicaPort, err = strconv.Atoi(req.AddPeer.ReplicaPort)
-	if err != nil {
-		return
+	if req.AddPeer.HeartbeatPort != "" {
+		heartbeatPort, err = strconv.Atoi(req.AddPeer.HeartbeatPort)
+		if err != nil {
+			return
+		}
+	}
+
+	if req.AddPeer.ReplicaPort != "" {
+		replicaPort, err = strconv.Atoi(req.AddPeer.ReplicaPort)
+		if err != nil {
+			return
+		}
 	}
 
 	log.LogInfof("action[addRaftNode] add raft node peer [%v]", req.AddPeer)
@@ -448,6 +474,59 @@ func (dp *DataPartition) removeRaftNode(req *proto.RemoveDataPartitionRaftMember
 	log.LogInfof("Finish RemoveRaftNode  PartitionID(%v) nodeID(%v)  do RaftLog (%v) ",
 		req.PartitionId, dp.config.NodeID, string(data))
 
+	return
+}
+
+// Update peers raft node.
+func (dp *DataPartition) updateRaftPeer(req *proto.UpdateDataPartitionPeerRequest, index uint64) (isUpdated bool, err error) {
+	// cache or preload partition not support raft and repair.
+	if !dp.isNormalType() {
+		return false, fmt.Errorf("addRaftNode (%v) not support", dp)
+	}
+
+	var (
+		heartbeatPort int
+		replicaPort   int
+	)
+
+	if heartbeatPort, replicaPort, err = dp.raftPort(); err != nil {
+		return
+	}
+
+	if req.Peer.HeartbeatPort != "" {
+		heartbeatPort, err = strconv.Atoi(req.Peer.HeartbeatPort)
+		if err != nil {
+			return
+		}
+	}
+
+	if req.Peer.ReplicaPort != "" {
+		replicaPort, err = strconv.Atoi(req.Peer.ReplicaPort)
+		if err != nil {
+			return
+		}
+	}
+
+	log.LogInfof("action[updateRaftPeer] update raft node peer [%v]", req.Peer)
+	found := false
+	for _, peer := range dp.config.Peers {
+		if peer.ID == req.Peer.ID {
+			peer.HeartbeatPort = req.Peer.HeartbeatPort
+			peer.ReplicaPort = req.Peer.ReplicaPort
+			found = true
+			break
+		}
+	}
+	isUpdated = !found
+	if isUpdated {
+		return
+	}
+	data, _ := json.Marshal(req)
+	log.LogInfof("updateRaftPeer: partitionID(%v) nodeID(%v) index(%v) data(%v) ",
+		req.PartitionId, dp.config.NodeID, index, string(data))
+
+	addr := strings.Split(req.Peer.Addr, ":")[0]
+	dp.config.RaftStore.UpdateNodeWithPort(req.Peer.ID, addr, heartbeatPort, replicaPort)
 	return
 }
 

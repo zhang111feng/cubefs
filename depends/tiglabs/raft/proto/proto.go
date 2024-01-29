@@ -45,9 +45,10 @@ const (
 )
 
 const (
-	ConfAddNode    ConfChangeType = 0
-	ConfRemoveNode ConfChangeType = 1
-	ConfUpdateNode ConfChangeType = 2
+	ConfAddNode     ConfChangeType = 0
+	ConfRemoveNode  ConfChangeType = 1
+	ConfUpdateNode  ConfChangeType = 2
+	ConfUpdatePeer ConfChangeType = 3
 
 	EntryNormal     EntryType = 0
 	EntryConfChange EntryType = 1
