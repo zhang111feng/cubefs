@@ -1518,19 +1518,10 @@ func (s *DataNode) handlePacketToUpdateDataPartitionPeer(p *repl.Packet) {
 	}
 
 	if req.Peer.ID != 0 {
-		cc := &raftProto.ConfChange{
-			Type: raftProto.ConfUpdatePeer,
-			Peer: raftProto.Peer{
-				ID: req.Peer.ID,
-			},
-			Context: reqData,
-		}
-
-		if _, err = dp.ApplyMemberChange(cc, 0); err != nil {
-			return
-		}
-
-		if err = dp.PersistMetadata(); err != nil {
+		log.LogDebugf("action[handlePacketToUpdateDataPartitionPeer] UpdateRaftMember "+
+			"req %v dp %v Peer.ID %v", p.GetReqID(), dp.partitionID, req.Peer.ID)
+		_, err = dp.ChangeRaftMember(raftProto.ConfUpdatePeer, raftProto.Peer{ID: req.Peer.ID}, reqData)
+		if err != nil {
 			return
 		}
 	}

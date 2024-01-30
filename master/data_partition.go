@@ -592,21 +592,30 @@ func (partition *DataPartition) checkPeers(c *Cluster) {
 
 		newPeers := make([]proto.Peer, len(partition.Peers))
 		copy(newPeers, partition.Peers)
-
-		for _, peer := range newPeers {
+		needUpdate := false
+		for i, peer := range newPeers {
 			if node, ok := c.dataNodes.Load(peer.Addr); ok {
 				dataNode := node.(*DataNode)
 
 				if peer.HeartbeatPort != dataNode.HeartbeatPort || peer.ReplicaPort != dataNode.ReplicaPort {
 					log.LogInfof("[checkPeers] needUpdate peer change from %v to %v", peer, proto.Peer{ID: peer.ID, Addr: peer.Addr, HeartbeatPort: dataNode.HeartbeatPort, ReplicaPort: dataNode.ReplicaPort})
-					peer.HeartbeatPort = dataNode.HeartbeatPort
-					peer.ReplicaPort = dataNode.ReplicaPort
-					for _, host := range partition.Hosts {
-						task := partition.createTaskToUpdateDataPartitionPeer(host, peer)
-						if _, err := dataNode.TaskManager.syncSendAdminTask(task); err != nil {
-							log.LogErrorf("[updateDataPartitionPeerFromDataNode] update peer from datanode failed, id %d, err %s", partition.PartitionID, err.Error())
-							return
-						}
+					newPeers[i].HeartbeatPort = dataNode.HeartbeatPort
+					newPeers[i].ReplicaPort = dataNode.ReplicaPort
+					needUpdate = true
+
+				}
+			}
+		}
+
+		if needUpdate {
+			for _, peer := range newPeers {
+				node, _ := c.dataNodes.Load(peer.Addr)
+				dataNode := node.(*DataNode)
+				for _, host := range partition.Hosts {
+					task := partition.createTaskToUpdateDataPartitionPeer(host, peer)
+					if _, err := dataNode.TaskManager.syncSendAdminTask(task); err != nil {
+						log.LogErrorf("[updateDataPartitionPeerFromDataNode] update peer from datanode failed, id %d, err %s", partition.PartitionID, err.Error())
+						return
 					}
 				}
 			}
