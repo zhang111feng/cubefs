@@ -513,6 +513,7 @@ func (dp *DataPartition) updateRaftPeer(req *proto.UpdateDataPartitionPeerReques
 		if peer.ID == req.Peer.ID {
 			peer.HeartbeatPort = req.Peer.HeartbeatPort
 			peer.ReplicaPort = req.Peer.ReplicaPort
+			//log
 			found = true
 			break
 		}

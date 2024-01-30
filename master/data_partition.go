@@ -611,13 +611,14 @@ func (partition *DataPartition) checkPeers(c *Cluster) {
 
 			if needUpdate == true {
 				for _, host := range newHosts {
-					if err := partition.createTaskToUpdateDataPartitionPeer(host, peer); err != nil {
+					task := partition.createTaskToUpdateDataPartitionPeer(host, peer)
+					if _, err := dataNode.TaskManager.syncSendAdminTask(task); err != nil {
+						log.LogErrorf("[updateDataPartitionPeerFromDataNode] update peer from datanode failed, id %d, err %s", partition.PartitionID, err.Error())
 						return
 					}
 				}
 			}
 		}
-
 	}
 	if err := partition.update("checkPeers", partition.VolName, newPeers, newHosts, c); err != nil {
 		log.LogErrorf("checkPeers failed : %v", err)
