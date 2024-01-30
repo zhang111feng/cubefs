@@ -509,11 +509,10 @@ func (dp *DataPartition) updateRaftPeer(req *proto.UpdateDataPartitionPeerReques
 
 	log.LogInfof("action[updateRaftPeer] update raft node peer [%v]", req.Peer)
 	found := false
-	for _, peer := range dp.config.Peers {
+	for i, peer := range dp.config.Peers {
 		if peer.ID == req.Peer.ID {
-			peer.HeartbeatPort = req.Peer.HeartbeatPort
-			peer.ReplicaPort = req.Peer.ReplicaPort
-			log.LogInfof("updateRaftPeer %v", dp.config.Peers)
+			dp.config.Peers[i].HeartbeatPort = req.Peer.HeartbeatPort
+			dp.config.Peers[i].ReplicaPort = req.Peer.ReplicaPort
 			found = true
 			break
 		}

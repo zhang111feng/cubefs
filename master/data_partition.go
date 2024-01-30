@@ -586,7 +586,7 @@ func (partition *DataPartition) checkReplicaNum(c *Cluster, vol *Vol) {
 }
 
 func (partition *DataPartition) checkPeers(c *Cluster) {
-	go func() {
+	go func(partition *DataPartition, c *Cluster) {
 		partition.Lock()
 		defer partition.Unlock()
 
@@ -616,7 +616,7 @@ func (partition *DataPartition) checkPeers(c *Cluster) {
 			return
 		}
 		return
-	}()
+	}(partition, c)
 
 	return
 }
