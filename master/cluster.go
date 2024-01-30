@@ -1013,9 +1013,13 @@ func (c *Cluster) addDataNode(nodeAddr, zoneName, heartbeatPort, replicaPort str
 		if nodesetId > 0 && nodesetId != dataNode.NodeSetID {
 			return dataNode.ID, fmt.Errorf("addr already in nodeset [%v]", nodeAddr)
 		}
+		oldHeartBeatPort := dataNode.HeartbeatPort
+		oldReplicaPort := dataNode.ReplicaPort
 		dataNode.HeartbeatPort = heartbeatPort
 		dataNode.ReplicaPort = replicaPort
 		if err := c.syncUpdateDataNode(dataNode); err != nil {
+			dataNode.HeartbeatPort = oldHeartBeatPort
+			dataNode.ReplicaPort = oldReplicaPort
 			return dataNode.ID, fmt.Errorf("update datanode failed addr [%v]", nodeAddr)
 		}
 

@@ -586,44 +586,37 @@ func (partition *DataPartition) checkReplicaNum(c *Cluster, vol *Vol) {
 }
 
 func (partition *DataPartition) checkPeers(c *Cluster) {
-	partition.Lock()
-	defer partition.Unlock()
+	go func() {
+		partition.Lock()
+		defer partition.Unlock()
 
-	newPeers := make([]proto.Peer, len(partition.Peers))
-	copy(newPeers, partition.Peers)
-	newHosts := make([]string, len(partition.Hosts))
-	copy(newHosts, partition.Hosts)
+		newPeers := make([]proto.Peer, len(partition.Peers))
+		copy(newPeers, partition.Peers)
 
-	for _, peer := range newPeers {
-		if node, ok := c.dataNodes.Load(peer.Addr); ok {
-			needUpdate := false
-			dataNode := node.(*DataNode)
+		for _, peer := range newPeers {
+			if node, ok := c.dataNodes.Load(peer.Addr); ok {
+				dataNode := node.(*DataNode)
 
-			if peer.HeartbeatPort != dataNode.HeartbeatPort {
-				needUpdate = true
-				peer.HeartbeatPort = dataNode.HeartbeatPort
-			}
-
-			if peer.ReplicaPort != dataNode.ReplicaPort {
-				needUpdate = true
-				peer.ReplicaPort = dataNode.ReplicaPort
-			}
-
-			if needUpdate == true {
-				for _, host := range newHosts {
-					task := partition.createTaskToUpdateDataPartitionPeer(host, peer)
-					if _, err := dataNode.TaskManager.syncSendAdminTask(task); err != nil {
-						log.LogErrorf("[updateDataPartitionPeerFromDataNode] update peer from datanode failed, id %d, err %s", partition.PartitionID, err.Error())
-						return
+				if peer.HeartbeatPort != dataNode.HeartbeatPort || peer.ReplicaPort != dataNode.ReplicaPort {
+					log.LogInfof("[checkPeers] needUpdate peer change from %v to %v", peer, proto.Peer{ID: peer.ID, Addr: peer.Addr, HeartbeatPort: dataNode.HeartbeatPort, ReplicaPort: dataNode.ReplicaPort})
+					peer.HeartbeatPort = dataNode.HeartbeatPort
+					peer.ReplicaPort = dataNode.ReplicaPort
+					for _, host := range partition.Hosts {
+						task := partition.createTaskToUpdateDataPartitionPeer(host, peer)
+						if _, err := dataNode.TaskManager.syncSendAdminTask(task); err != nil {
+							log.LogErrorf("[updateDataPartitionPeerFromDataNode] update peer from datanode failed, id %d, err %s", partition.PartitionID, err.Error())
+							return
+						}
 					}
 				}
 			}
 		}
-	}
-	if err := partition.update("checkPeers", partition.VolName, newPeers, newHosts, c); err != nil {
-		log.LogErrorf("checkPeers failed : %v", err)
+		if err := partition.update("checkPeers", partition.VolName, newPeers, partition.Hosts, c); err != nil {
+			log.LogErrorf("checkPeers failed : %v", err)
+			return
+		}
 		return
-	}
+	}()
 
 	return
 }
