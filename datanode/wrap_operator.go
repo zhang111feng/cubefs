@@ -1526,6 +1526,17 @@ func (s *DataNode) handlePacketToUpdateDataPartitionPeer(p *repl.Packet) {
 		}
 	}
 
+	// cc := &raftProto.ConfChange{
+	// 	Type: raftProto.ConfUpdatePeer,
+	// 	Peer: raftProto.Peer{
+	// 		ID: req.Peer.ID,
+	// 	},
+	// 	Context: reqData,
+	// }
+
+	// dp.ApplyMemberChange(cc, 0)
+	// dp.PersistMetadata()
+
 	return
 
 }

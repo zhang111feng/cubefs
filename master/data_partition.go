@@ -219,6 +219,28 @@ func (partition *DataPartition) prepareAddRaftMember(addPeer proto.Peer) (leader
 	return
 }
 
+func (partition *DataPartition) prepareUpdateRaftMember(newPeer proto.Peer) (leaderAddr string, candidateAddrs []string, err error) {
+
+	if !contains(partition.Hosts, newPeer.Addr) {
+		err = fmt.Errorf("vol[%v],data partition[%v] doesn't contain host[%v]", partition.VolName, partition.PartitionID, newPeer.Addr)
+		return
+	}
+	candidateAddrs = make([]string, 0, len(partition.Hosts))
+	leaderAddr = partition.getLeaderAddr()
+	if leaderAddr != "" && contains(partition.Hosts, leaderAddr) {
+		candidateAddrs = append(candidateAddrs, leaderAddr)
+	} else {
+		leaderAddr = ""
+	}
+	for _, host := range partition.Hosts {
+		if host == leaderAddr {
+			continue
+		}
+		candidateAddrs = append(candidateAddrs, host)
+	}
+	return
+}
+
 func (partition *DataPartition) createTaskToTryToChangeLeader(addr string) (task *proto.AdminTask, err error) {
 	task = proto.NewAdminTask(proto.OpDataPartitionTryToLeader, addr, nil)
 	partition.resetTaskID(task)
@@ -586,46 +608,36 @@ func (partition *DataPartition) checkReplicaNum(c *Cluster, vol *Vol) {
 }
 
 func (partition *DataPartition) checkPeers(c *Cluster) {
-	go func(partition *DataPartition, c *Cluster) {
-		partition.Lock()
-		defer partition.Unlock()
+	partition.Lock()
+	defer partition.Unlock()
 
-		newPeers := make([]proto.Peer, len(partition.Peers))
-		copy(newPeers, partition.Peers)
-		needUpdate := false
-		for i, peer := range newPeers {
-			if node, ok := c.dataNodes.Load(peer.Addr); ok {
-				dataNode := node.(*DataNode)
-
-				if peer.HeartbeatPort != dataNode.HeartbeatPort || peer.ReplicaPort != dataNode.ReplicaPort {
-					log.LogInfof("[checkPeers] partitionID %v needUpdate peer change from %v to %v", partition.PartitionID, proto.Peer{ID: peer.ID, Addr: peer.Addr, HeartbeatPort: dataNode.HeartbeatPort, ReplicaPort: dataNode.ReplicaPort})
-					newPeers[i].HeartbeatPort = dataNode.HeartbeatPort
-					newPeers[i].ReplicaPort = dataNode.ReplicaPort
-					needUpdate = true
-
-				}
-			}
-		}
-		for _, peer := range newPeers {
-			node, _ := c.dataNodes.Load(peer.Addr)
+	newPeers := make([]proto.Peer, len(partition.Peers))
+	copy(newPeers, partition.Peers)
+	needUpdate := false
+	for i, peer := range newPeers {
+		if node, ok := c.dataNodes.Load(peer.Addr); ok {
 			dataNode := node.(*DataNode)
-			for _, host := range partition.Hosts {
-				task := partition.createTaskToUpdateDataPartitionPeer(host, peer)
-				if _, err := dataNode.TaskManager.syncSendAdminTask(task); err != nil {
-					log.LogErrorf("[updateDataPartitionPeerFromDataNode] update peer from datanode failed, id %d, err %s", partition.PartitionID, err.Error())
+
+			if peer.HeartbeatPort != dataNode.HeartbeatPort || peer.ReplicaPort != dataNode.ReplicaPort {
+				newPeers[i].HeartbeatPort = dataNode.HeartbeatPort
+				newPeers[i].ReplicaPort = dataNode.ReplicaPort
+				log.LogInfof("[checkPeers] partitionID %v needUpdate peer change from %v to %v", partition.PartitionID, peer, newPeers[i])
+				needUpdate = true
+				if err := c.updateDataPartitionRaftMember(partition, newPeers[i]); err != nil {
+					log.LogErrorf("checkPeers failed : %v", err.Error())
 					return
 				}
 			}
 		}
-		if needUpdate {
+	}
 
-		}
+	if needUpdate {
+		log.LogInfof("update peer %v", newPeers)
 		if err := partition.update("checkPeers", partition.VolName, newPeers, partition.Hosts, c); err != nil {
-			log.LogErrorf("checkPeers failed : %v", err)
+			log.LogErrorf("checkPeers failed : %v", err.Error())
 			return
 		}
-		return
-	}(partition, c)
+	}
 
 	return
 }
