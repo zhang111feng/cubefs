@@ -2619,7 +2619,7 @@ func (c *Cluster) buildUpdateDataPartitionRaftMemberTaskAndSyncSendTask(dp *Data
 	if resp, err = leaderDataNode.TaskManager.syncSendAdminTask(task); err != nil {
 		return
 	}
-	log.LogInfof("action[buildAddDataPartitionRaftMemberTaskAndSyncSendTask] add peer [%v] finished", newPeer)
+	log.LogInfof("action[buildUpdateDataPartitionRaftMemberTaskAndSyncSendTask] update peer [%v] finished", newPeer)
 	return
 }
 
