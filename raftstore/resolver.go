@@ -110,6 +110,7 @@ func (r *nodeResolver) DeleteNode(nodeID uint64) {
 	r.nodeMap.Delete(nodeID)
 }
 
+// UpdateNodeWithPort updates the node address with specified port.
 func (r *nodeResolver) UpdateNodeWithPort(nodeID uint64, addr string, heartbeat int, replicate int) {
 	if heartbeat == 0 {
 		heartbeat = DefaultHeartbeatPort

@@ -21,7 +21,6 @@ import (
 	"net"
 	"os"
 	"path"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -485,27 +484,17 @@ func (dp *DataPartition) updateRaftPeer(req *proto.UpdateDataPartitionPeerReques
 		return false, fmt.Errorf("updateRaftNode (%v) not support", dp)
 	}
 
-	var checkPeerVersion proto.Peer
-	v := reflect.ValueOf(checkPeerVersion)
-	t := v.Type()
-	if _, exists := t.FieldByName("HeartbeatPort"); !exists {
-		return false, fmt.Errorf("version is mismatched, peer.HeartbeatPort doesn't exist")
-	}
-
-	if _, exists := t.FieldByName("ReplicaPort"); !exists {
-		return false, fmt.Errorf("version is mismatched, peer.ReplicaPort doesn't exist")
-	}
-
 	var (
-		heartbeatPort int
-		replicaPort   int
-		// conHeartbeatPort int
-		// conReplicaPort   int
+		heartbeatPort    int
+		replicaPort      int
+		conHeartbeatPort int
+		conReplicaPort   int
 	)
 
-	// if conHeartbeatPort, conReplicaPort, err = dp.raftPort(); err != nil {
-	// 	return
-	// }
+	if conHeartbeatPort, conReplicaPort, err = dp.raftPort(); err != nil {
+		return
+	}
+
 	if heartbeatPort, replicaPort, err = dp.raftPort(); err != nil {
 		return
 	}
@@ -525,48 +514,39 @@ func (dp *DataPartition) updateRaftPeer(req *proto.UpdateDataPartitionPeerReques
 	}
 
 	log.LogInfof("action[updateRaftPeer] update raft node peer [%v]", req.Peer)
-	found := false
-	peersHasChange := false
+
+	peerHasChange := false
 	oldPeers := dp.config.Peers
 	for i, peer := range dp.config.Peers {
-		peerHasChange := false
 		if peer.ID == req.Peer.ID {
-			if dp.config.Peers[i].HeartbeatPort != req.Peer.HeartbeatPort {
-				dp.config.Peers[i].HeartbeatPort = req.Peer.HeartbeatPort
+			if dp.config.Peers[i].HeartbeatPort != strconv.Itoa(heartbeatPort) {
+				dp.config.Peers[i].HeartbeatPort = strconv.Itoa(heartbeatPort)
 				peerHasChange = true
 			}
-			if dp.config.Peers[i].ReplicaPort != req.Peer.ReplicaPort {
-				dp.config.Peers[i].ReplicaPort = req.Peer.ReplicaPort
+			if dp.config.Peers[i].ReplicaPort != strconv.Itoa(replicaPort) {
+				dp.config.Peers[i].ReplicaPort = strconv.Itoa(replicaPort)
 				peerHasChange = true
 			}
-			found = true
+		} else {
+			if dp.config.Peers[i].HeartbeatPort == "" {
+				dp.config.Peers[i].HeartbeatPort = strconv.Itoa(conHeartbeatPort)
+				peerHasChange = true
+			}
+			if dp.config.Peers[i].ReplicaPort == "" {
+				dp.config.Peers[i].ReplicaPort = strconv.Itoa(conReplicaPort)
+				peerHasChange = true
+			}
 		}
-		if peerHasChange {
-			peersHasChange = true
-		}
-		// else {
-		// 	if dp.config.Peers[i].HeartbeatPort == "" {
-		// 		dp.config.Peers[i].HeartbeatPort = strconv.Itoa(conHeartbeatPort)
-		// 		peerHasChange = true
-		// 	}
-		// 	if dp.config.Peers[i].ReplicaPort == "" {
-		// 		dp.config.Peers[i].ReplicaPort = strconv.Itoa(conReplicaPort)
-		// 		peerHasChange = true
-		// 	}
-		// }
-
-		// if peerHasChange {
-		// 	addr := strings.Split(peer.Addr, ":")[0]
-		// 	dp.config.RaftStore.UpdateNodeWithPort(peer.ID, addr, dp.config.Peers[i].ReplicaPort, replicaPort)
-		// }
 	}
-	if peersHasChange == true {
+	if peerHasChange == true {
 		log.LogInfof("updateRaftPeer: partitionID(%v) peers change from %v to %v", req.PartitionId, oldPeers, dp.config.Peers)
 	}
-	isUpdated = found || peersHasChange
+
+	isUpdated = peerHasChange
 	if !isUpdated {
 		return
 	}
+
 	data, _ := json.Marshal(req)
 	log.LogInfof("updateRaftPeer: partitionID(%v) nodeID(%v) index(%v) data(%v)",
 		req.PartitionId, dp.config.NodeID, index, string(data))
