@@ -21,6 +21,7 @@ import (
 	"net"
 	"os"
 	"path"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -481,17 +482,31 @@ func (dp *DataPartition) removeRaftNode(req *proto.RemoveDataPartitionRaftMember
 func (dp *DataPartition) updateRaftPeer(req *proto.UpdateDataPartitionPeerRequest, index uint64) (isUpdated bool, err error) {
 	// cache or preload partition not support raft and repair.
 	if !dp.isNormalType() {
-		return false, fmt.Errorf("addRaftNode (%v) not support", dp)
+		return false, fmt.Errorf("updateRaftNode (%v) not support", dp)
+	}
+
+	var checkPeerVersion proto.Peer
+	v := reflect.ValueOf(checkPeerVersion)
+	t := v.Type()
+	if _, exists := t.FieldByName("HeartbeatPort"); !exists {
+		return false, fmt.Errorf("version is mismatched, peer.HeartbeatPort doesn't exist")
+	}
+
+	if _, exists := t.FieldByName("ReplicaPort"); !exists {
+		return false, fmt.Errorf("version is mismatched, peer.ReplicaPort doesn't exist")
 	}
 
 	var (
-		heartbeatPort    int
-		replicaPort      int
-		conHeartbeatPort int
-		conReplicaPort   int
+		heartbeatPort int
+		replicaPort   int
+		// conHeartbeatPort int
+		// conReplicaPort   int
 	)
 
-	if conHeartbeatPort, conReplicaPort, err = dp.raftPort(); err != nil {
+	// if conHeartbeatPort, conReplicaPort, err = dp.raftPort(); err != nil {
+	// 	return
+	// }
+	if heartbeatPort, replicaPort, err = dp.raftPort(); err != nil {
 		return
 	}
 
@@ -525,26 +540,30 @@ func (dp *DataPartition) updateRaftPeer(req *proto.UpdateDataPartitionPeerReques
 				peerHasChange = true
 			}
 			found = true
-		} else {
-			if dp.config.Peers[i].HeartbeatPort == "" {
-				dp.config.Peers[i].HeartbeatPort = strconv.Itoa(conHeartbeatPort)
-				peerHasChange = true
-			}
-			if dp.config.Peers[i].ReplicaPort == "" {
-				dp.config.Peers[i].ReplicaPort = strconv.Itoa(conReplicaPort)
-				peerHasChange = true
-			}
 		}
-
 		if peerHasChange {
-			addr := strings.Split(peer.Addr, ":")[0]
-			dp.config.RaftStore.UpdateNodeWithPort(peer.ID, addr, dp.config.Peers[i].ReplicaPort, replicaPort)
+			peersHasChange = true
 		}
+		// else {
+		// 	if dp.config.Peers[i].HeartbeatPort == "" {
+		// 		dp.config.Peers[i].HeartbeatPort = strconv.Itoa(conHeartbeatPort)
+		// 		peerHasChange = true
+		// 	}
+		// 	if dp.config.Peers[i].ReplicaPort == "" {
+		// 		dp.config.Peers[i].ReplicaPort = strconv.Itoa(conReplicaPort)
+		// 		peerHasChange = true
+		// 	}
+		// }
+
+		// if peerHasChange {
+		// 	addr := strings.Split(peer.Addr, ":")[0]
+		// 	dp.config.RaftStore.UpdateNodeWithPort(peer.ID, addr, dp.config.Peers[i].ReplicaPort, replicaPort)
+		// }
 	}
-	if hasChange == true {
+	if peersHasChange == true {
 		log.LogInfof("updateRaftPeer: partitionID(%v) peers change from %v to %v", req.PartitionId, oldPeers, dp.config.Peers)
 	}
-	isUpdated = found || hasChange
+	isUpdated = found || peersHasChange
 	if !isUpdated {
 		return
 	}

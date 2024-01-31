@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"net"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -1483,6 +1484,19 @@ func (s *DataNode) handlePacketToUpdateDataPartitionPeer(p *repl.Packet) {
 			p.PacketOkReply()
 		}
 	}()
+
+	var checkPeerVersion proto.Peer
+	v := reflect.ValueOf(checkPeerVersion)
+	t := v.Type()
+	if _, exists := t.FieldByName("HeartbeatPort"); !exists {
+		err = raft.ErrPeerVersion
+		return
+	}
+
+	if _, exists := t.FieldByName("ReplicaPort"); !exists {
+		err = raft.ErrPeerVersion
+		return
+	}
 
 	adminTask := &proto.AdminTask{}
 	decode := json.NewDecoder(bytes.NewBuffer(p.Data))
