@@ -1014,6 +1014,7 @@ func (c *Cluster) addDataNode(nodeAddr, zoneName, heartbeatPort, replicaPort str
 			return dataNode.ID, fmt.Errorf("addr already in nodeset [%v]", nodeAddr)
 		}
 		dataNode.Lock()
+		defer dataNode.Unlock()
 		oldHeartBeatPort := dataNode.HeartbeatPort
 		oldReplicaPort := dataNode.ReplicaPort
 		dataNode.HeartbeatPort = heartbeatPort
@@ -1021,14 +1022,7 @@ func (c *Cluster) addDataNode(nodeAddr, zoneName, heartbeatPort, replicaPort str
 		if err := c.syncUpdateDataNode(dataNode); err != nil {
 			dataNode.HeartbeatPort = oldHeartBeatPort
 			dataNode.ReplicaPort = oldReplicaPort
-			dataNode.Unlock()
 			return dataNode.ID, fmt.Errorf("update datanode failed addr [%v]", nodeAddr)
-		}
-		dataNode.Unlock()
-
-		existedPartitions := c.getAllDataPartitionByDataNode(nodeAddr)
-		for _, dp := range existedPartitions {
-			dp.checkPeers(c)
 		}
 		return dataNode.ID, nil
 	}
@@ -2602,7 +2596,7 @@ func (c *Cluster) addDataPartitionRaftMember(dp *DataPartition, addPeer proto.Pe
 }
 
 func (c *Cluster) buildUpdateDataPartitionRaftMemberTaskAndSyncSendTask(dp *DataPartition, newPeer proto.Peer, leaderAddr string) (resp *proto.Packet, err error) {
-	log.LogInfof("action[buildAddDataPartitionRaftMemberTaskAndSyncSendTask] add peer [%v] start", newPeer)
+	log.LogInfof("action[buildUpdateDataPartitionRaftMemberTaskAndSyncSendTask] add peer [%v] start", newPeer)
 	defer func() {
 		var resultCode uint8
 		if resp != nil {

@@ -485,11 +485,13 @@ func (dp *DataPartition) updateRaftPeer(req *proto.UpdateDataPartitionPeerReques
 	}
 
 	var (
-		heartbeatPort int
-		replicaPort   int
+		heartbeatPort    int
+		replicaPort      int
+		conHeartbeatPort int
+		conReplicaPort   int
 	)
 
-	if heartbeatPort, replicaPort, err = dp.raftPort(); err != nil {
+	if conHeartbeatPort, conReplicaPort, err = dp.raftPort(); err != nil {
 		return
 	}
 
@@ -509,21 +511,45 @@ func (dp *DataPartition) updateRaftPeer(req *proto.UpdateDataPartitionPeerReques
 
 	log.LogInfof("action[updateRaftPeer] update raft node peer [%v]", req.Peer)
 	found := false
+	peersHasChange := false
+	oldPeers := dp.config.Peers
 	for i, peer := range dp.config.Peers {
+		peerHasChange := false
 		if peer.ID == req.Peer.ID {
-			dp.config.Peers[i].HeartbeatPort = req.Peer.HeartbeatPort
-			dp.config.Peers[i].ReplicaPort = req.Peer.ReplicaPort
-			log.LogInfof("updatePeer %v", dp.config.Peers)
+			if dp.config.Peers[i].HeartbeatPort != req.Peer.HeartbeatPort {
+				dp.config.Peers[i].HeartbeatPort = req.Peer.HeartbeatPort
+				peerHasChange = true
+			}
+			if dp.config.Peers[i].ReplicaPort != req.Peer.ReplicaPort {
+				dp.config.Peers[i].ReplicaPort = req.Peer.ReplicaPort
+				peerHasChange = true
+			}
 			found = true
-			break
+		} else {
+			if dp.config.Peers[i].HeartbeatPort == "" {
+				dp.config.Peers[i].HeartbeatPort = strconv.Itoa(conHeartbeatPort)
+				peerHasChange = true
+			}
+			if dp.config.Peers[i].ReplicaPort == "" {
+				dp.config.Peers[i].ReplicaPort = strconv.Itoa(conReplicaPort)
+				peerHasChange = true
+			}
+		}
+
+		if peerHasChange {
+			addr := strings.Split(peer.Addr, ":")[0]
+			dp.config.RaftStore.UpdateNodeWithPort(peer.ID, addr, dp.config.Peers[i].ReplicaPort, replicaPort)
 		}
 	}
-	isUpdated = !found
-	if isUpdated {
+	if hasChange == true {
+		log.LogInfof("updateRaftPeer: partitionID(%v) peers change from %v to %v", req.PartitionId, oldPeers, dp.config.Peers)
+	}
+	isUpdated = found || hasChange
+	if !isUpdated {
 		return
 	}
 	data, _ := json.Marshal(req)
-	log.LogInfof("updateRaftPeer: partitionID(%v) nodeID(%v) index(%v) data(%v) ",
+	log.LogInfof("updateRaftPeer: partitionID(%v) nodeID(%v) index(%v) data(%v)",
 		req.PartitionId, dp.config.NodeID, index, string(data))
 
 	addr := strings.Split(req.Peer.Addr, ":")[0]
